@@ -1,0 +1,31 @@
+{
+    "pluginAlias": "RoborockVacuumPlatform",
+    "pluginType": "platform",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Roborock account email"
+        },
+        "password": {
+          "type": "string",
+          "description": "Roborock account password"
+        },
+        "baseURL": {
+          "type": "string",
+          "default": "usiot.roborock.com",
+          "description": "Roborock API endpoint"
+        }
+        ,
+        "debugMode": {
+          "title": "Debug Mode",
+          "description": "When enabled, debug messages will be written to the log.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": ["email", "password"]
+    }
+  }

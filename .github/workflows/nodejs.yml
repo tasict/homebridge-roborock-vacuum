@@ -1,0 +1,69 @@
+name: "CI"
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master, next]
+
+jobs:
+  lint:
+    name: "Check lint rules"
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [current]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+
+  build:
+    name: "Typescript build"
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [current]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+      - run: npm ci
+      - run: npm run build
+
+  tests:
+    name: "Run tests"
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        # Run the tests for the previous and current LTS version + the current version
+        node-version: [lts/-1, lts/*, current]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+      - run: npm ci
+      - run: npm test -- --coverage
+        env:
+          CI: true
+      - run: npx codecov@3.7.0
+        env:
+          CI: true
+          CODECOV_TOKEN: eb2ac9d8-8f8f-4901-aaa9-73670a149904
