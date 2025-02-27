@@ -11,6 +11,7 @@
         },
         "password": {
           "type": "string",
+          "placeholder": "Password",
           "description": "Roborock account password"
         },
         "baseURL": {

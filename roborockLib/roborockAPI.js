@@ -443,8 +443,6 @@ class Roborock {
 
 			await this.vacuums[duid].getCleanSummary(duid);
 
-			// get map once at start of adapter
-			await this.vacuums[duid].getMap(duid);
 		}
 	}
 
@@ -519,28 +517,6 @@ class Roborock {
 			} catch (error) {
 				this.catchError(error.stack, "executeScene");
 			}
-		}
-	}
-
-	async startMapUpdater(duid) {
-		if (!this.vacuums[duid].mapUpdater) {
-			this.log.debug(`Started map updater on robot: ${duid}`);
-			this.vacuums[duid].mapUpdater = this.setInterval(() => {
-				this.vacuums[duid].getMap(duid);
-			}, this.config.map_creation_interval * 1000);
-		} else {
-			this.log.debug(`Map updater on robot: ${duid} already running!`);
-		}
-	}
-
-	async stopMapUpdater(duid) {
-		this.log.debug(`Stopping map updater on robot: ${duid}`);
-
-		if (this.vacuums[duid].mapUpdater) {
-			this.clearInterval(this.vacuums[duid].mapUpdater);
-			this.vacuums[duid].mapUpdater = null;
-
-			await this.vacuums[duid].getCleanSummary(duid);
 		}
 	}
 
@@ -642,7 +618,6 @@ class Roborock {
 				if (!onlineState && this.vacuums[duid].mainUpdateInterval) {
 					this.clearInterval(this.vacuums[duid].getStatusIntervall);
 					this.clearInterval(this.vacuums[duid].mainUpdateInterval);
-					this.clearInterval(this.vacuums[duid].mapUpdater);
 				} else if (!this.vacuums[duid].mainUpdateInterval) {
 					this.vacuums[duid].getStatusIntervall();
 					this.startMainUpdateInterval(duid, onlineState);
@@ -722,7 +697,6 @@ class Roborock {
 		for (const duid in this.vacuums) {
 			this.clearInterval(this.vacuums[duid].getStatusIntervall);
 			this.clearInterval(this.vacuums[duid].mainUpdateInterval);
-			this.clearInterval(this.vacuums[duid].mapUpdater);
 		}
 
 		this.messageQueue.forEach(({ timeout102, timeout301 }) => {
@@ -1108,10 +1082,6 @@ class Roborock {
 			case "app_pause":
 			case "app_charge":
 				this.vacuums[duid].command(duid, command, parameters);
-				break;
-
-			case "getMap":
-				this.vacuums[duid].getMap(duid);
 				break;
 
 			case "get_photo":
