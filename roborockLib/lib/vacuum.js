@@ -2,7 +2,6 @@
 
 const rrMessage = require("./message").message;
 const RRMapParser = require("./RRMapParser");
-const MapCreator = require("./mapCreator");
 const fs = require("fs");
 const zlib = require("zlib");
 
@@ -36,7 +35,6 @@ class vacuum {
 		this.message = new rrMessage(this.adapter);
 
 		this.mapParser = new RRMapParser(this.adapter);
-		this.mapCreator = new MapCreator(this.adapter);
 
 		this.parameterFolders = {
 			get_mop_mode: "deviceStatus",
@@ -50,94 +48,10 @@ class vacuum {
 		};
 	}
 
-	async getMap(duid) {
-		if (this.adapter.config.enable_map_creation) {
-			this.adapter.log.debug(`Update map`);
-
-			try {
-				// const map = await connector.sendRequest(duid, "get_map_v1", [], true);
-				// const map = await this.adapter.rr_mqtt_connector.sendRequest(duid, "get_map_v1", [], true);
-				const map = await this.adapter.messageQueueHandler.sendRequest(duid, "get_map_v1", [], true);
-				// this.adapter.log.debug(`Map received: ${map}`);
-				if (map != "retry") {
-					const mappedRooms = await this.adapter.messageQueueHandler.sendRequest(duid, "get_room_mapping", []);
-
-					// const deviceStatus = await this.adapter.messageQueueHandler.sendRequest(duid, "get_status", []);
-					const deviceStatus = await this.adapter.messageQueueHandler.sendRequest(duid, "get_prop", ["get_status"]);
-					const selectedMap = deviceStatus[0].map_status >> 2 ?? -1; // to get the currently selected map perform bitwise right shift
-
-					// This is for testing and debugging maps. This can't be stored in a state.
-					zlib.gzip(map, (error, buffer) => {
-						if (error) {
-							this.adapter.log.error(`Error compressing map to gz ${error}`);
-						} else {
-							fs.writeFile("./test.rrmap.gz", buffer, (error) => {
-								if (error) {
-									this.adapter.log.error(`Error writing map file ${error}`);
-								}
-							});
-						}
-					});
-
-					const parsedData = await this.mapParser.parsedata(map);
-
-					const [mapBase64, mapBase64Truncated] = this.mapCreator.canvasMap(parsedData, duid, selectedMap, mappedRooms);
-
-					await this.adapter.setStateAsync(`Devices.${duid}.map.mapData`, { val: JSON.stringify(parsedData), ack: true });
-					await this.adapter.setStateAsync(`Devices.${duid}.map.mapBase64`, { val: mapBase64, ack: true });
-					await this.adapter.setStateAsync(`Devices.${duid}.map.mapBase64Truncated`, { val: mapBase64Truncated, ack: true });
-
-					// Send current map with Scale factor
-					const mapToSend = {
-						duid: duid,
-						command: "map",
-						base64: mapBase64,
-						map: parsedData,
-						scale: this.adapter.config.map_scale,
-					};
-
-					if (this.adapter.socket != null) {
-						this.adapter.socket.send(JSON.stringify(mapToSend));
-					}
-				}
-			} catch (error) {
-				this.adapter.catchError(error, "get_map_v1", duid), this.robotModel;
-			}
-		}
-	}
-
-	async getCleaningRecordMap(duid, startTime) {
-		try {
-			const cleaningRecordMap = await this.adapter.messageQueueHandler.sendRequest(duid, "get_clean_record_map", { start_time: startTime }, true);
-			const parsedData = await this.mapParser.parsedata(cleaningRecordMap);
-			const [mapBase64, mapBase64Truncated] = this.mapCreator.canvasMap(parsedData, duid);
-
-			return {
-				mapBase64: mapBase64,
-				mapBase64Truncated: mapBase64Truncated,
-				mapData: JSON.stringify(parsedData),
-			};
-		} catch (error) {
-			this.adapter.catchError(error, "get_clean_record_map", duid, this.robotModel);
-
-			return null;
-		}
-	}
 
 	async command(duid, parameter, value) {
 		try {
 			switch (parameter) {
-				case "load_multi_map": {
-					const result = await this.adapter.messageQueueHandler.sendRequest(duid, "load_multi_map", value);
-
-					if (result[0] == "ok") {
-						await this.getMap(duid).then(async () => {
-							await this.getParameter(duid, "get_room_mapping");
-						});
-					}
-
-					break;
-				}
 				case "app_segment_clean": {
 					this.adapter.log.debug("Start room cleaning");
 
@@ -304,7 +218,6 @@ class vacuum {
 
 											if (mapFromCommand && mapFromCommand.val != currentMap) {
 												await this.adapter.setStateAsync(`Devices.${duid}.commands.load_multi_map`, currentMap, true);
-												await this.adapter.vacuums[duid].getMap(duid);
 											}
 										}
 									}
@@ -549,13 +462,6 @@ class vacuum {
 							});
 						}
 
-						if (this.adapter.config.enable_map_creation == true) {
-							const mapArray = await this.getCleaningRecordMap(duid, cleaningAttributes[cleaningAttribute][cleaningRecord]);
-							for (const mapType in mapArray) {
-								const val = mapArray[mapType];
-								this.adapter.setStateAsync(`Devices.${duid}.cleaningInfo.records.${cleaningRecord}.map.${mapType}`, { val: val, ack: true });
-							}
-						}
 					}
 
 					const objectString = `Devices.${duid}.cleaningInfo.JSON`;
