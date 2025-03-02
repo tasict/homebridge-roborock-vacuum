@@ -107,7 +107,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     const self = this;
 
     self.roborockAPI.setDeviceNotify(function(id, homeData){
-      console.warn(`${id} notifyDeviceUpdater:${JSON.stringify(homeData)}`);
+      self.log.debug(`${id} notifyDeviceUpdater:${JSON.stringify(homeData)}`);
 
       for (const vacuum of self.vacuums) {
         vacuum.notifyDeviceUpdater(id, homeData);
@@ -117,7 +117,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     });
 
     self.roborockAPI.startService(function(){
-      console.warn("Service started");
+      self.log.info("Service started");
       //call the discoverDevices function
       self.discoverDevices();
       

@@ -5,11 +5,13 @@
       "type": "object",
       "properties": {
         "email": {
+          "title": "Email",
           "type": "string",
           "format": "email",
           "description": "Roborock account email"
         },
         "password": {
+          "title": "Password",
           "type": "string",
           "placeholder": "Password",
           "description": "Roborock account password"
@@ -17,7 +19,7 @@
         "baseURL": {
           "type": "string",
           "default": "usiot.roborock.com",
-          "description": "Roborock API endpoint"
+          "description": "Roborock API endpoint USA: usiot.roborock.com, Europe: euiot.roborock.com"
         }
         ,
         "debugMode": {
