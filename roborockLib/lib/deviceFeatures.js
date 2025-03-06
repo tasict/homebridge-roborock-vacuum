@@ -590,16 +590,18 @@ class deviceFeatures {
 				"roborock.vacuum.a87", // Qrevo MaxV
 				"roborock.vacuum.a101", // Q Revo Pro
 				"roborock.vacuum.a97", // S8 MaxV (Ultra)
+				"roborock.vacuum.a104", // Roborock Qrevo S
+				"roborock.vacuum.a135", // Qrevo Curv
+				"roborock.vacuum.a117", // Qrevo Master
+				"roborock.vacuum.a21", // Qrevo Slim
 			].includes(robotModel),
 			// isShakeMopStrengthSupported: p.DMM.currentProduct == p.Products.TanosS || p.DMM.currentProduct == p.Products.TanosSPlus || p.DMM.isGarnet || p.DMM.isTopazSV || p.DMM.isPearlPlus || p.DMM.isCoral || p.DMM.isTopazS || p.DMM.isTopazSPlus || p.DMM.isTopazSC || p.DMM.isTopazSV || p.DMM.isPearlPlus || p.DMM.isTanosSMax || p.DMM.isUltron || p.DMM.isUltronSPlus || p.DMM.isUltronSMop || p.DMM.isUltronSV || p.DMM.isPearl
 			isShakeMopStrengthSupported: [
 				"roborock.vacuum.a08", // S6 Pure
 				"roborock.vacuum.a10", // S6 MaxV
-				"roborock.vacuum.s6", // S6
 				"roborock.vacuum.a62", // S7 Pro Ultra
 				"roborock.vacuum.a51", // S8
 				"roborock.vacuum.a15", // S7
-				"roborock.vacuum.a72", // Q5 Pro
 				"roborock.vacuum.a27", // S7 MaxV (Ultra)
 				"roborock.vacuum.a19", // S4 Max
 				"roborock.vacuum.a40", // Q7
@@ -615,6 +617,7 @@ class deviceFeatures {
 			// isWaterBoxSupported: [p.Products.Tanos_CE, p.Products.Tanos_CN].hasElement(p.DMM.currentProduct)
 			isWaterBoxSupported: [
 				"roborock.vacuum.s5e", // S5 Max
+				"roborock.vacuum.s6", // S6
 				"roborock.vacuum.a08", // S6 Pure
 				"roborock.vacuum.a10", // S6 MaxV
 				"roborock.vacuum.a15", // S7
@@ -631,6 +634,10 @@ class deviceFeatures {
 				"roborock.vacuum.a87", // Qrevo MaxV
 				"roborock.vacuum.a101", // Q Revo Pro
 				"roborock.vacuum.a97", // S8 MaxV (Ultra)
+				"roborock.vacuum.a104", // Roborock Qrevo S
+				"roborock.vacuum.a135", // Qrevo Curv
+				"roborock.vacuum.a117", // Qrevo Master
+				"roborock.vacuum.a21", // Qrevo Slim
 			].includes(robotModel),
 			isCustomWaterBoxDistanceSupported: !!(2147483648 & this.features),
 			isBackChargeAutoWashSupported: this.featuresStr && !!(4096 & parseInt("0x" + this.featuresStr.slice(-8))),
@@ -638,7 +645,6 @@ class deviceFeatures {
 				"roborock.vacuum.a10", // S6 MaxV
 				"roborock.vacuum.a40", // Q7
 				"roborock.vacuum.s6", // S6
-				"roborock.vacuum.a72", // Q5 Pro
 				"roborock.vacuum.a73", // Q8 Max
 				"roborock.vacuum.a38", // Q7 Max
 				"roborock.vacuum.a51", // S8
@@ -651,6 +657,9 @@ class deviceFeatures {
 				"roborock.vacuum.a87", // Qrevo MaxV
 				"roborock.vacuum.a101", // Q Revo Pro
 				"roborock.vacuum.a97", // S8 MaxV (Ultra)
+				"roborock.vacuum.a104", // Roborock Qrevo S
+				"roborock.vacuum.a135", // Qrevo Curv
+				"roborock.vacuum.a117" // Qrevo Master
 			].includes(robotModel),
 			// this isn't the correct way to use this. This code must be from a different robot
 			// isVoiceControlSupported: !!(parseInt(`0x${this.featuresStr || "0"}`.slice(-10, -9)) & 2),
@@ -664,6 +673,9 @@ class deviceFeatures {
 				"roborock.vacuum.a27", // S7 MaxV (Ultra)
 				"roborock.vacuum.a97", // S8 MaxV (Ultra)
 				"roborock.vacuum.a87", // Qrevo MaxV
+				"roborock.vacuum.a135", // Qrevo Curv
+				"roborock.vacuum.a117", // Qrevo Master
+				"roborock.vacuum.a21", // Qrevo Slim
 			].includes(robotModel),
 		};
 	}
@@ -708,6 +720,7 @@ class deviceFeatures {
 					"set_charge_status",
 					"set_clean_percent",
 					"set_switch_status",
+					"set_cleaned_area"
 				],
 				// S7 Pro Ultra
 				"roborock.vacuum.a62": ["setCleaningRecordsString", "setConsumablesInt", "set_dss", "set_rss", "set_map_flag", "set_charge_status", "set_clean_percent"],
@@ -737,8 +750,8 @@ class deviceFeatures {
 					"set_back_type",
 					"set_charge_status",
 					"set_switch_status",
-
 					"set_clean_percent",
+					"set_custom_mode_max_plus",
 				],
 				// Q5 Pro
 				"roborock.vacuum.a72": [
@@ -751,6 +764,10 @@ class deviceFeatures {
 					"set_back_type",
 					"set_charge_status",
 					"set_clean_percent",
+					"set_cleaned_area",
+					"set_switch_status",
+					"set_common_status",
+					"set_in_warmup",
 				],
 				// Q8 Max
 				"roborock.vacuum.a73": [
@@ -764,6 +781,7 @@ class deviceFeatures {
 					"set_map_flag",
 					"set_charge_status",
 					"set_clean_percent",
+					"set_switch_status",
 				],
 				// Q Revo
 				"roborock.vacuum.a75": [
@@ -781,13 +799,14 @@ class deviceFeatures {
 					"set_clean_percent",
 					"set_rdt",
 					"set_switch_status",
+					"set_cleaned_area",
 				],
 				// S4
 				"roborock.vacuum.s4": ["setCleaningRecordsInt", "setConsumablesString"],
 				// S5 Max
 				"roborock.vacuum.s5e": ["setCleaningRecordsMixed", "setConsumablesInt"],
 				// S6
-				"roborock.vacuum.s6": ["setCleaningRecordsMixed", "setConsumablesInt"],
+				"roborock.vacuum.s6": ["setCleaningRecordsMixed", "setConsumablesString"],
 				// Qrevo MaxV
 				"roborock.vacuum.a87": [
 					"setCleaningRecordsString",
@@ -840,7 +859,83 @@ class deviceFeatures {
 					"set_in_warmup",
 					"set_map_flag",
 					"set_task_id",
+					"set_dss",
 				],
+				// Roborock Qrevo S
+				"roborock.vacuum.a104": [
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_in_warmup",
+					"set_charge_status",
+					"set_clean_percent",
+					"set_rss",
+					"set_dss",
+					"set_common_status",
+					"set_kct",
+					"set_switch_status",
+					"set_map_flag",
+					"set_cleaned_area",
+
+				],
+				// Roborock Qrevo Curv
+				"roborock.vacuum.a135": [
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_monitor_status",
+					"set_in_warmup",
+					"set_clean_percent",
+					"set_extra_time",
+					"set_rss",
+					"set_common_status",
+					"set_kct",
+					"set_switch_status",
+					"set_last_clean_t",
+					"set_cleaning_info",
+					"set_exit_dock",
+					"set_charge_status",
+					"set_map_flag",
+					"set_cleaned_area",
+					"set_task_id",
+					"set_dss",
+				],
+				// Roborock Qrevo Master
+				"roborock.vacuum.a117": [
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_last_clean_t",
+					"set_switch_status",
+					"set_kct",
+					"set_common_status",
+					"set_dss",
+					"set_rss",
+					"set_clean_percent",
+					"set_charge_status",
+					"set_in_warmup",
+					"set_monitor_status",
+					"set_task_id",
+					"set_cleaned_area",
+					"set_map_flag",
+				],
+				// Roborock Qrevo Slim
+				"roborock.vacuum.a21": [
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_map_flag",
+					"set_cleaned_area",
+					"set_replenish_mode",
+					"set_clean_times",
+					"set_task_id",
+					"set_monitor_status",
+					"set_in_warmup",
+					"set_charge_status",
+					"set_clean_percent",
+					"set_dss",
+					"set_rss",
+					"set_common_status",
+					"set_kct",
+					"set_switch_status",
+					"set_last_clean_t",
+				]
 			};
 
 			// process modelConfig
@@ -912,6 +1007,7 @@ class deviceFeatures {
 			this.adapter.createBasicWashingMachineObjects(this.duid);
 		}
 	}
+
 
 	processDockType(dockType) {
 		switch (dockType) {
