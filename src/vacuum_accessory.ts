@@ -74,7 +74,7 @@ export default class RoborockVacuumAccessory {
 
     this.services['Battery'].setCharacteristic(
       this.platform.Characteristic.ChargingState,
-      this.platform.roborockAPI.getVacuumDeviceStatus(accessory.context, "charge_status") || 0,
+      this.platform.roborockAPI.getVacuumDeviceStatus(accessory.context, "charge_status") == 1 || 0,
     );
 
    }
@@ -102,7 +102,7 @@ export default class RoborockVacuumAccessory {
 
       this.services['Battery'].updateCharacteristic(
         this.platform.Characteristic.ChargingState,
-        this.platform.roborockAPI.getVacuumDeviceStatus(this.accessory.context, "charge_status") || 0
+        this.platform.roborockAPI.getVacuumDeviceStatus(this.accessory.context, "charge_status") == 1|| 0
       );
 
       this.platform.log.debug("Device state is " + this.state_code_to_state(this.platform.roborockAPI.getVacuumDeviceStatus(this.accessory.context, "state")));
@@ -142,12 +142,25 @@ export default class RoborockVacuumAccessory {
               this.platform.Characteristic.StatusLowBattery,
               messages.battery < 20 ? 1 : 0
             );
+
+          }
+
+          if(messages.hasOwnProperty('charge_status')) {
       
             this.services['Battery'].updateCharacteristic(
               this.platform.Characteristic.ChargingState,
               messages.charge_status
             );
           }
+
+          if(messages.hasOwnProperty('in_cleaning')) {
+      
+            this.services['Fan'].updateCharacteristic(
+              this.platform.Characteristic.Active,
+              messages.in_cleaning
+            );
+          }
+
         }
   
         if(data.hasOwnProperty('dps') && data.dps.hasOwnProperty('121')) {
