@@ -142,9 +142,10 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     this.accessories.push(accessory);
   }
 
-  isSupportedDevice(deviceType: string): boolean {
+  isSupportedDevice(model: string): boolean {
 
-    return true;
+    //model nust starts with "roborock.vacuum."
+    return model.startsWith("roborock.vacuum.");
 
   }
 
@@ -166,10 +167,12 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         self.roborockAPI.getVacuumList().forEach(function(device){
           var duid = device.duid;
           var name = device.name;
-          var battery = self.roborockAPI.getVacuumDeviceStatus(duid, "battery");
+          var model = self.roborockAPI.roborock.getProductAttribute(duid, "model");
           
-          if(!self.isSupportedDevice(device.deviceType)){
+          if(!self.isSupportedDevice(model)){
+
             self.log.info(`Device '${name}' (${duid}) is not supported.`);
+
             return;
           }
 
