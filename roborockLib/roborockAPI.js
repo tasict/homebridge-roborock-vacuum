@@ -398,6 +398,13 @@ class Roborock {
 
 			const robotModel = this.getProductAttribute(duid, "model");
 
+			//model nust starts with "roborock.vacuum."
+			if (!robotModel.startsWith("roborock.vacuum.")) {
+				this.log.error(`Unknown model: ${robotModel}`);
+				continue;
+			}
+
+
 			this.vacuums[duid] = new vacuum_class(this, robotModel);
 			this.vacuums[duid].name = name;
 			this.vacuums[duid].features = new deviceFeatures(this, device.featureSet, device.newFeatureSet, duid);

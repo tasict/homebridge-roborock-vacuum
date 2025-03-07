@@ -167,7 +167,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         self.roborockAPI.getVacuumList().forEach(function(device){
           var duid = device.duid;
           var name = device.name;
-          var model = self.roborockAPI.roborock.getProductAttribute(duid, "model");
+          var model = self.roborockAPI.getProductAttribute(duid, "model");
           
           if(!self.isSupportedDevice(model)){
 
