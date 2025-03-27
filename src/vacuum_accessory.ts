@@ -216,7 +216,7 @@ export default class RoborockVacuumAccessory {
       } 
       else {
 
-          const isCleaning = await this.isCleaning();
+          const isCleaning = this.isCleaning();
 
           if(isCleaning) {
             await this.platform.roborockAPI.app_stop(this.accessory.context);
@@ -240,7 +240,9 @@ export default class RoborockVacuumAccessory {
   }
 
   async getActive():Promise<CharacteristicValue> {    
-    return await this.isCleaning() ? 1 : 0;
+
+    this.updateDeviceState();
+    return this.isCleaning() ? 1 : 0;
   }
 
   state_code_to_state(code:number):string {
@@ -277,9 +279,9 @@ export default class RoborockVacuumAccessory {
     
   }
 
-  async isCleaning():Promise<boolean> {
+  isCleaning():boolean {
     
-    return this.isCleaningState(await this.platform.roborockAPI.getVacuumDeviceStatus(this.accessory.context, "state"));
+    return this.isCleaningState(this.platform.roborockAPI.getVacuumDeviceStatus(this.accessory.context, "state"));
 
   }
 
