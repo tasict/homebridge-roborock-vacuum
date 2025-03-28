@@ -769,6 +769,10 @@ class deviceFeatures {
 					"set_common_status",
 					"set_in_warmup",
 				],
+				// Q5 Max+
+				"roborock.vacuum.a125": ["setCleaningRecordsInt", "setConsumablesString"],
+				// S4 Max
+				"roborock.vacuum.a19": ["setCleaningRecordsInt", "setConsumablesInt"],
 				// Q8 Max
 				"roborock.vacuum.a73": [
 					"setCleaningRecordsString",
@@ -801,8 +805,6 @@ class deviceFeatures {
 					"set_switch_status",
 					"set_cleaned_area",
 				],
-				// S4
-				"roborock.vacuum.s4": ["setCleaningRecordsInt", "setConsumablesString"],
 				// S5 Max
 				"roborock.vacuum.s5e": ["setCleaningRecordsMixed", "setConsumablesInt"],
 				// S6
