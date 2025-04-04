@@ -216,14 +216,8 @@ export default class RoborockVacuumAccessory {
       } 
       else {
 
-          const isCleaning = this.isCleaning();
-
-          if(isCleaning) {
-            await this.platform.roborockAPI.app_stop(this.accessory.context);
-          }
-          else{
-            await this.platform.roborockAPI.app_charge(this.accessory.context);
-          }
+          await this.platform.roborockAPI.app_stop(this.accessory.context);
+          await this.platform.roborockAPI.app_charge(this.accessory.context);
 
       }
 
