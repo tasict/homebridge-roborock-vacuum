@@ -132,13 +132,21 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   configureAccessory(accessory: PlatformAccessory<String>) {
     this.log.info(`Loading accessory '${accessory.displayName}' from cache.`);
 
-    /**
-     * We don't have to set up the handlers here,
-     * because our device discovery function takes care of that.
-     *
-     * But we need to add the restored accessory to the
-     * accessories cache so we can access it during that process.
-     */
+    // Store restored accessory in the cached accessories list
+    // remove duplicates accessories
+
+    try {
+
+      const existingAccessory = this.accessories.find(a => a.UUID === accessory.UUID);
+      if (existingAccessory) {
+        this.log.info(`Removing duplicate accessory '${existingAccessory.displayName}' from cache.`);
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [existingAccessory]);
+      }
+
+    }catch (e) {
+      this.log.error("Error loading accessory from cache: " + e);
+    }
+   
     this.accessories.push(accessory);
   }
 
@@ -163,6 +171,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       const self = this;
 
       if(self.roborockAPI.isInited()){ 
+
  
         self.roborockAPI.getVacuumList().forEach(function(device){
           var duid = device.duid;
@@ -210,9 +219,11 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
             // Link the accessory to your platform
             self.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
           }
-        });  
+        });
+        
   
       }
+
 
 
       // At this point, we set up all devices from Roborock App, but we did not unregister
