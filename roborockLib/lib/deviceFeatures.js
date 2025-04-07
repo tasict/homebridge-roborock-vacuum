@@ -594,6 +594,7 @@ class deviceFeatures {
 				"roborock.vacuum.a135", // Qrevo Curv
 				"roborock.vacuum.a117", // Qrevo Master
 				"roborock.vacuum.a21", // Qrevo Slim
+				"roborock.vacuum.a144", // Saros 10R
 			].includes(robotModel),
 			// isShakeMopStrengthSupported: p.DMM.currentProduct == p.Products.TanosS || p.DMM.currentProduct == p.Products.TanosSPlus || p.DMM.isGarnet || p.DMM.isTopazSV || p.DMM.isPearlPlus || p.DMM.isCoral || p.DMM.isTopazS || p.DMM.isTopazSPlus || p.DMM.isTopazSC || p.DMM.isTopazSV || p.DMM.isPearlPlus || p.DMM.isTanosSMax || p.DMM.isUltron || p.DMM.isUltronSPlus || p.DMM.isUltronSMop || p.DMM.isUltronSV || p.DMM.isPearl
 			isShakeMopStrengthSupported: [
@@ -613,6 +614,7 @@ class deviceFeatures {
 				"roborock.vacuum.s5e", // S5 Max
 				"roborock.vacuum.a87", // Qrevo MaxV
 				"roborock.vacuum.a101", // Q Revo Pro
+				"roborock.vacuum.a144", // Saros 10R
 			].includes(robotModel),
 			// isWaterBoxSupported: [p.Products.Tanos_CE, p.Products.Tanos_CN].hasElement(p.DMM.currentProduct)
 			isWaterBoxSupported: [
@@ -638,6 +640,8 @@ class deviceFeatures {
 				"roborock.vacuum.a135", // Qrevo Curv
 				"roborock.vacuum.a117", // Qrevo Master
 				"roborock.vacuum.a21", // Qrevo Slim
+				"roborock.vacuum.a144", // Saros 10R
+
 			].includes(robotModel),
 			isCustomWaterBoxDistanceSupported: !!(2147483648 & this.features),
 			isBackChargeAutoWashSupported: this.featuresStr && !!(4096 & parseInt("0x" + this.featuresStr.slice(-8))),
@@ -659,12 +663,15 @@ class deviceFeatures {
 				"roborock.vacuum.a97", // S8 MaxV (Ultra)
 				"roborock.vacuum.a104", // Roborock Qrevo S
 				"roborock.vacuum.a135", // Qrevo Curv
-				"roborock.vacuum.a117" // Qrevo Master
+				"roborock.vacuum.a117", // Qrevo Master
+				"roborock.vacuum.a144", // Saros 10R
+
 			].includes(robotModel),
 			// this isn't the correct way to use this. This code must be from a different robot
 			// isVoiceControlSupported: !!(parseInt(`0x${this.featuresStr || "0"}`.slice(-10, -9)) & 2),
 			isVoiceControlSupported: [
 				"roborock.vacuum.a27", // S7 MaxV (Ultra)
+				
 			],
 			isElectronicWaterBoxSupported: [], // nothing for now. If this is needed, add the models here
 			isCleanRouteFastModeSupported: this.featuresStr && !!(256 & parseInt("0x" + this.featuresStr.slice(-8))),
@@ -937,7 +944,28 @@ class deviceFeatures {
 					"set_kct",
 					"set_switch_status",
 					"set_last_clean_t",
-				]
+				],
+				// Saros 10R
+				"roborock.vacuum.a144": [	
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_map_flag",
+					"set_cleaned_area",
+					"set_replenish_mode",
+					"set_clean_times",
+					"set_task_id",
+					"set_monitor_status",
+					"set_in_warmup",
+					"set_charge_status",
+					"set_clean_percent",
+					"set_dss",
+					"set_rss",
+					"set_common_status",
+					"set_kct",
+					"set_switch_status",
+					"set_last_clean_t",
+				],
+
 			};
 
 			// process modelConfig

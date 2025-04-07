@@ -192,22 +192,24 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   
             self.createRoborockAccessory(existingAccessory);
           }
-          
-          self.log.info(`Adding accessory '${name}' (${uuid}).`);
-          // The accessory does not yet exist, so we need to create it
-          const accessory = new self.api.platformAccessory<String>(name, uuid);
-  
-          // Store a copy of the device object in the `accessory.context` property,
-          // which can be used to store any data about the accessory you may need.
-          accessory.context = duid;
-  
-          // Create the accessory handler for the newly create accessory
-          // this is imported from `platformAccessory.ts`
-          self.createRoborockAccessory(accessory);
-  
-          // Link the accessory to your platform
-          self.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-        
+          else {
+              // The accessory already exists, so we need to create it
+            
+            self.log.info(`Adding accessory '${name}' (${uuid}).`);
+            // The accessory does not yet exist, so we need to create it
+            const accessory = new self.api.platformAccessory<String>(name, uuid);
+    
+            // Store a copy of the device object in the `accessory.context` property,
+            // which can be used to store any data about the accessory you may need.
+            accessory.context = duid;
+    
+            // Create the accessory handler for the newly create accessory
+            // this is imported from `platformAccessory.ts`
+            self.createRoborockAccessory(accessory);
+    
+            // Link the accessory to your platform
+            self.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+          }
         });  
   
       }
