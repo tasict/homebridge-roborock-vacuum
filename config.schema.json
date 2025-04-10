@@ -16,6 +16,11 @@
           "placeholder": "Password",
           "description": "Roborock account password"
         },
+        "skipDevices": {
+          "title": "Skip Device",
+          "type": "string",
+          "description": "Device ID to skip"
+        },
         "baseURL": {
           "type": "string",
           "default": "usiot.roborock.com",
