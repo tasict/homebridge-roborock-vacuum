@@ -14,6 +14,7 @@ import { log } from 'console';
  */
 export default class RoborockVacuumAccessory {
   private services: Service[] = [];
+  private sceneServices: Record<string, Service> = {};
 
   constructor(
     private readonly platform: RoborockPlatform,
@@ -77,7 +78,17 @@ export default class RoborockVacuumAccessory {
       this.platform.roborockAPI.getVacuumDeviceStatus(accessory.context, "charge_status") == 1 ? this.platform.Characteristic.ChargingState.CHARGING : this.platform.Characteristic.ChargingState.NOT_CHARGING
     );
 
-   }
+    const scenes = this.platform.roborockAPI.getScenes(accessory.context);
+    for (const scene of scenes) {
+      const service = this.accessory.getService(scene.name) ||
+        this.accessory.addService(this.platform.Service.Switch, scene.name, `scene_${scene.id}`);
+      service.getCharacteristic(this.platform.Characteristic.On)
+        .onSet(async (value) => this.runScene(scene.id, value))
+        .onGet(() => false);
+      this.sceneServices[`scene_${scene.id}`] = service;
+    }
+
+  }
 
 
 
@@ -233,10 +244,24 @@ export default class RoborockVacuumAccessory {
 
   }
 
-  async getActive():Promise<CharacteristicValue> {    
+  async getActive():Promise<CharacteristicValue> {
 
     this.updateDeviceState();
     return this.isCleaning() ? this.platform.Characteristic.Active.ACTIVE : this.platform.Characteristic.Active.INACTIVE;
+  }
+
+  async runScene(sceneId:number, value: CharacteristicValue) {
+    if(value) {
+      try{
+        await this.platform.roborockAPI.executeScene(sceneId);
+      } catch(e) {
+        this.platform.log.error("Error executing scene: " + e);
+      }
+    }
+    const service = this.sceneServices[`scene_${sceneId}`];
+    if(service) {
+      service.updateCharacteristic(this.platform.Characteristic.On, false);
+    }
   }
 
   state_code_to_state(code:number):string {

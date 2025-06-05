@@ -59,8 +59,9 @@ class Roborock {
 
 		this.pendingRequests = new Map();
 
-		this.localDevices = {};
-		this.remoteDevices = new Set();
+                this.localDevices = {};
+                this.remoteDevices = new Set();
+                this.scenes = {};
 
 		this.name = "roborock";
 		this.deviceNotify = null;
@@ -468,10 +469,15 @@ class Roborock {
 				this.log.debug(`Processing scene param ${param}`);
 				const duid = JSON.parse(param).action.items[0].entityId;
 
-				if (!programs[duid]) {
-					programs[duid] = {};
-				}
-				programs[duid][programID] = programName;
+                                if (!programs[duid]) {
+                                        programs[duid] = {};
+                                }
+                                programs[duid][programID] = programName;
+
+                                if (!this.scenes[duid]) {
+                                        this.scenes[duid] = [];
+                                }
+                                this.scenes[duid].push({ id: programID, name: programName });
 
 				await this.setObjectNotExistsAsync(`Devices.${duid}.programs`, {
 					type: "folder",
@@ -517,15 +523,16 @@ class Roborock {
 		}
 	}
 
-	async executeScene(sceneID) {
-		if (this.api) {
-			try {
-				await this.api.post(`user/scene/${sceneID.val}/execute`);
-			} catch (error) {
-				this.catchError(error.stack, "executeScene");
-			}
-		}
-	}
+        async executeScene(sceneID) {
+                if (this.api) {
+                        try {
+                                const id = typeof sceneID === "object" ? sceneID.val : sceneID;
+                                await this.api.post(`user/scene/${id}/execute`);
+                        } catch (error) {
+                                this.catchError(error.stack, "executeScene");
+                        }
+                }
+        }
 
 	getProductAttribute(duid, attribute) {
 		const products = this.products;
@@ -1326,9 +1333,13 @@ class Roborock {
 			return devices;
 		}
 
-		return [];
+                return [];
 
-	}
+        }
+
+        getScenes(duid) {
+                return this.scenes[duid] || [];
+        }
 
 	setDeviceNotify(callback){
 		this.deviceNotify = callback;
