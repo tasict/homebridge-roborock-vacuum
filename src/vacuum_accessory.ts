@@ -14,6 +14,8 @@ import { log } from 'console';
  */
 export default class RoborockVacuumAccessory {
   private services: Service[] = [];
+  private sceneServices: Map<string, Service> = new Map();
+  private currentScenes: any[] = [];
 
   constructor(
     private readonly platform: RoborockPlatform,
@@ -77,6 +79,9 @@ export default class RoborockVacuumAccessory {
       this.platform.roborockAPI.getVacuumDeviceStatus(accessory.context, "charge_status") == 1 ? this.platform.Characteristic.ChargingState.CHARGING : this.platform.Characteristic.ChargingState.NOT_CHARGING
     );
 
+    // Initialize scene switches
+    this.updateSceneSwitches();
+
    }
 
 
@@ -113,6 +118,129 @@ export default class RoborockVacuumAccessory {
     }
 
 
+  }
+
+  /**
+   * Update scene switches based on available scenes for this device
+   */
+  updateSceneSwitches() {
+    try {
+      // Get scenes for this device
+      const deviceScenes = this.platform.roborockAPI.getScenesForDevice(this.accessory.context);
+      
+      // Check if scenes have changed
+      if (this.scenesChanged(deviceScenes)) {
+        this.platform.log.debug(`Updating scene switches for device ${this.accessory.context}`);
+        
+        // Remove existing scene switches that are no longer available
+        this.removeOldSceneSwitches(deviceScenes);
+        
+        // Add new scene switches
+        this.addNewSceneSwitches(deviceScenes);
+        
+        // Update current scenes
+        this.currentScenes = deviceScenes;
+      }
+    } catch (error) {
+      this.platform.log.error(`Error updating scene switches: ${error}`);
+    }
+  }
+
+  /**
+   * Check if scenes have changed
+   */
+  private scenesChanged(newScenes: any[]): boolean {
+    if (this.currentScenes.length !== newScenes.length) {
+      return true;
+    }
+    
+    const currentIds = this.currentScenes.map(scene => scene.id).sort();
+    const newIds = newScenes.map(scene => scene.id).sort();
+    
+    return JSON.stringify(currentIds) !== JSON.stringify(newIds);
+  }
+
+  /**
+   * Remove scene switches that are no longer available
+   */
+  private removeOldSceneSwitches(newScenes: any[]) {
+    const newSceneIds = new Set(newScenes.map(scene => scene.id.toString()));
+    
+    for (const [sceneId, service] of this.sceneServices.entries()) {
+      if (!newSceneIds.has(sceneId)) {
+        this.platform.log.debug(`Removing scene switch for scene ID: ${sceneId}`);
+        this.accessory.removeService(service);
+        this.sceneServices.delete(sceneId);
+      }
+    }
+  }
+
+  /**
+   * Add new scene switches
+   */
+  private addNewSceneSwitches(scenes: any[]) {
+    for (const scene of scenes) {
+      const sceneId = scene.id.toString();
+      
+      if (!this.sceneServices.has(sceneId) && scene.enabled) {
+        this.platform.log.debug(`Adding scene switch for: ${scene.name} (ID: ${sceneId})`);
+        
+        const switchService = this.accessory.addService(
+          this.platform.Service.Switch,
+          scene.name,
+          `scene-${sceneId}`
+        );
+        
+        switchService.setCharacteristic(
+          this.platform.Characteristic.Name,
+          scene.name
+        );
+        
+        switchService.getCharacteristic(this.platform.Characteristic.On)
+          .onSet(this.setSceneSwitch.bind(this, sceneId))
+          .onGet(this.getSceneSwitch.bind(this, sceneId));
+        
+        this.sceneServices.set(sceneId, switchService);
+      }
+    }
+  }
+
+  /**
+   * Handle scene switch activation
+   */
+  async setSceneSwitch(sceneId: string, value: CharacteristicValue) {
+    try {
+      this.platform.log.debug(`Scene switch ${sceneId} set to: ${value}`);
+      
+      if (value) {
+        // Execute the scene
+        await this.platform.roborockAPI.executeScene({val: sceneId});
+        this.platform.log.info(`Executed scene ID: ${sceneId}`);
+        
+        // Turn off the switch after execution (momentary switch behavior)
+        setTimeout(() => {
+          const service = this.sceneServices.get(sceneId);
+          if (service) {
+            service.updateCharacteristic(this.platform.Characteristic.On, false);
+          }
+        }, 1000);
+      }
+    } catch (error) {
+      this.platform.log.error(`Error executing scene ${sceneId}: ${error}`);
+      
+      // Turn off the switch if there was an error
+      const service = this.sceneServices.get(sceneId);
+      if (service) {
+        service.updateCharacteristic(this.platform.Characteristic.On, false);
+      }
+    }
+  }
+
+  /**
+   * Get scene switch state (always returns false for momentary behavior)
+   */
+  async getSceneSwitch(sceneId: string): Promise<CharacteristicValue> {
+    return false; // Momentary switch - always return false
   }
 
   notifyDeviceUpdater(id:string, data) {
@@ -192,7 +320,9 @@ export default class RoborockVacuumAccessory {
   
       }
       else if(id == 'HomeData') {
-       this.updateDeviceState();   
+       this.updateDeviceState();
+       // Update scene switches when home data changes
+       this.updateSceneSwitches();   
       }
     
     

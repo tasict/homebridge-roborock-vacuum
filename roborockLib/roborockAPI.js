@@ -62,6 +62,8 @@ class Roborock {
 		this.localDevices = {};
 		this.remoteDevices = new Set();
 
+		this.scenesData = null; // Store scenes data locally
+
 		this.name = "roborock";
 		this.deviceNotify = null;
 		this.baseURL = options.baseURL || "usiot.roborock.com";
@@ -527,6 +529,102 @@ class Roborock {
 		}
 	}
 
+	/**
+	 * Get the home ID from the login API
+	 * @returns {Promise<string>} The home ID
+	 */
+	async getHomeID() {
+		if (!this.loginApi) {
+			throw new Error("loginApi is not initialized. Call init() first.");
+		}
+
+		try {
+			const homeDetail = await this.loginApi.get("api/v1/getHomeDetail");
+			if (homeDetail && homeDetail.data && homeDetail.data.data) {
+				return homeDetail.data.data.rrHomeId;
+			}
+			throw new Error("Failed to get home ID from homeDetail response");
+		} catch (error) {
+			this.log.error(`Failed to get home ID: ${error.message}`);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get scenes from the Roborock API
+	 * @returns {Promise<Object>} The scenes data
+	 */
+	async getScenes() {
+		if (!this.loginApi) {
+			throw new Error("loginApi is not initialized. Call init() first.");
+		}
+		if (!this.api) {
+			throw new Error("api is not initialized. Call initializeRealApi() first");
+		}
+
+		try {
+			const homeId = await this.getHomeID();
+			const response = await this.api.get(`user/scene/home/${homeId}`);
+			
+			// Store scenes data locally
+			this.scenesData = response.data;
+			
+			return response.data;
+		} catch (error) {
+			this.log.error(`Failed to get scenes: ${error.message}`);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get scenes for a specific device by duid
+	 * @param {string} duid - The device unique identifier
+	 * @returns {Array} Array of scenes for the specified device
+	 */
+	getScenesForDevice(duid) {
+		// If duid provided, filter scenes for that device
+		if (!this.scenesData || !this.scenesData.result) {
+			this.log.warn(`No scenes data available. Call getScenes() first.`);
+			return [];
+		}
+
+		try {
+			const deviceScenes = [];
+			
+			for (const scene of this.scenesData.result) {
+				if (scene.param) {
+					try {
+						const param = JSON.parse(scene.param);
+						if (param.action && param.action.items) {
+							// Check if any item in the scene has the matching entityId (duid)
+							const hasMatchingDevice = param.action.items.some(item => 
+								item.entityId === duid
+							);
+							
+							if (hasMatchingDevice) {
+								deviceScenes.push({
+									id: scene.id,
+									name: scene.name,
+									enabled: scene.enabled,
+									type: scene.type,
+									param: scene.param
+								});
+							}
+						}
+					} catch (parseError) {
+						this.log.warn(`Failed to parse scene param for scene ${scene.id}: ${parseError.message}`);
+					}
+				}
+			}
+
+			this.log.debug(`Found ${deviceScenes.length} scenes for device ${duid}`);
+			return deviceScenes;
+		} catch (error) {
+			this.log.error(`Failed to filter scenes for device ${duid}: ${error.message}`);
+			return [];
+		}
+	}
+
 	getProductAttribute(duid, attribute) {
 		const products = this.products;
 		const productID = this.devices.find((device) => device.duid == duid).productId;
@@ -686,6 +784,7 @@ class Roborock {
 		await vacuum.getParameter(duid, "get_fw_features");
 
 		await vacuum.getParameter(duid, "get_multi_maps_list");
+		
 	}
 
 	clearTimersAndIntervals() {
@@ -750,6 +849,7 @@ class Roborock {
 					await this.updateConsumablesPercent(homedata.receivedDevices);
 					await this.updateDeviceInfo(homedata.devices);
 					await this.updateDeviceInfo(homedata.receivedDevices);
+					await this.getScenes();
 				} else {
 					this.log.warn("homedata failed to download");
 				}
