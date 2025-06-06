@@ -167,11 +167,19 @@ export default class RoborockVacuumAccessory {
     const newSceneIds = new Set(newScenes.map(scene => scene.id.toString()));
     
     for (const [sceneId, service] of this.sceneServices.entries()) {
-      if (!newSceneIds.has(sceneId)) {
-        this.platform.log.debug(`Removing scene switch for scene ID: ${sceneId}`);
-        this.accessory.removeService(service);
-        this.sceneServices.delete(sceneId);
+
+      try{
+          if (!newSceneIds.has(sceneId)) {
+          this.platform.log.debug(`Removing scene switch for scene ID: ${sceneId}`);
+          this.accessory.removeService(service);
+          this.sceneServices.delete(sceneId);
       }
+
+      }catch(e) {
+        this.platform.log.error(`Error processing scene ${sceneId}: ${e}`);
+      }
+
+
     }
   }
 
@@ -180,28 +188,41 @@ export default class RoborockVacuumAccessory {
    */
   private addNewSceneSwitches(scenes: any[]) {
     for (const scene of scenes) {
-      const sceneId = scene.id.toString();
+
+      try{
+
+        const sceneId = scene.id.toString();
       
-      if (!this.sceneServices.has(sceneId) && scene.enabled) {
-        this.platform.log.debug(`Adding scene switch for: ${scene.name} (ID: ${sceneId})`);
-        
-        const switchService = this.accessory.addService(
-          this.platform.Service.Switch,
-          scene.name,
-          `scene-${sceneId}`
-        );
-        
-        switchService.setCharacteristic(
-          this.platform.Characteristic.Name,
-          scene.name
-        );
-        
-        switchService.getCharacteristic(this.platform.Characteristic.On)
-          .onSet(this.setSceneSwitch.bind(this, sceneId))
-          .onGet(this.getSceneSwitch.bind(this, sceneId));
-        
-        this.sceneServices.set(sceneId, switchService);
+        if (!this.sceneServices.has(sceneId) && scene.enabled) {
+          this.platform.log.debug(`Adding scene switch for: ${scene.name} (ID: ${sceneId})`);
+          
+          const switchService = this.accessory.addService(
+            this.platform.Service.Switch,
+            scene.name,
+            `scene-${sceneId}`
+          );
+
+          switchService.setCharacteristic(
+            this.platform.Characteristic.Name,
+            scene.name
+          );
+          
+          switchService.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+          switchService.setCharacteristic(this.platform.Characteristic.ConfiguredName, scene.name);
+
+          switchService.getCharacteristic(this.platform.Characteristic.On)
+            .onSet(this.setSceneSwitch.bind(this, sceneId))
+            .onGet(this.getSceneSwitch.bind(this, sceneId));
+          
+          this.sceneServices.set(sceneId, switchService);
+        }
+
+      }catch(e) {
+        this.platform.log.error(`Error processing scene ${scene.name}: ${e}`);
       }
+
+
+
     }
   }
 
