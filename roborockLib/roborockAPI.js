@@ -62,6 +62,7 @@ class Roborock {
                 this.localDevices = {};
                 this.remoteDevices = new Set();
                 this.scenes = {};
+                this.homeId = null;
 
 		this.name = "roborock";
 		this.deviceNotify = null;
@@ -244,7 +245,8 @@ class Roborock {
 		try {
 			const homeDetail = await this.loginApi.get("api/v1/getHomeDetail");
 			if (homeDetail) {
-				const homeId = homeDetail.data.data.rrHomeId;
+                                const homeId = homeDetail.data.data.rrHomeId;
+                                this.homeId = homeId;
 
 				if (this.api) {
 					const homedata = await this.api.get(`v2/user/homes/${homeId}`);
@@ -455,9 +457,9 @@ class Roborock {
 	}
 
 
-	async processScene(scene) {
-		if (scene && scene.data.result) {
-			this.log.debug(`Processing scene ${JSON.stringify(scene.data.result)}`);
+        async processScene(scene) {
+                if (scene && scene.data.result) {
+                        this.log.debug(`Processing scene ${JSON.stringify(scene.data.result)}`);
 
 			const programs = {};
 			for (const program in scene.data.result) {
@@ -516,12 +518,24 @@ class Roborock {
 				}
 			}
 
-			for (const duid in programs) {
-				const objectPath = `Devices.${duid}.programs.startProgram`;
-				await this.createStateObjectHelper(objectPath, "Start saved program", "string", null, Object.keys(programs[duid])[0], "value", true, true, programs[duid]);
-			}
-		}
-	}
+                        for (const duid in programs) {
+                                const objectPath = `Devices.${duid}.programs.startProgram`;
+                                await this.createStateObjectHelper(objectPath, "Start saved program", "string", null, Object.keys(programs[duid])[0], "value", true, true, programs[duid]);
+                        }
+                }
+        }
+
+        async updateScenes() {
+                if (this.api && this.homeId) {
+                        try {
+                                this.scenes = {};
+                                const scene = await this.api.get(`user/scene/home/${this.homeId}`);
+                                await this.processScene(scene);
+                        } catch (error) {
+                                this.log.error(`Failed to update scenes: ${error}`);
+                        }
+                }
+        }
 
         async executeScene(sceneID) {
                 if (this.api) {
@@ -746,12 +760,13 @@ class Roborock {
 				const home = await this.api.get(`user/homes/${homeId}`);
 				const homedata = home.data.result;
 
-				if (homedata) {
-					await this.setStateAsync("HomeData", {
-						val: JSON.stringify(homedata),
-						ack: true,
-					});
-					this.log.debug(`homedata successfully updated`);
+                                if (homedata) {
+                                        await this.setStateAsync("HomeData", {
+                                                val: JSON.stringify(homedata),
+                                                ack: true,
+                                        });
+                                        await this.updateScenes();
+                                        this.log.debug(`homedata successfully updated`);
 
 					await this.updateConsumablesPercent(homedata.devices);
 					await this.updateConsumablesPercent(homedata.receivedDevices);

@@ -78,15 +78,7 @@ export default class RoborockVacuumAccessory {
       this.platform.roborockAPI.getVacuumDeviceStatus(accessory.context, "charge_status") == 1 ? this.platform.Characteristic.ChargingState.CHARGING : this.platform.Characteristic.ChargingState.NOT_CHARGING
     );
 
-    const scenes = this.platform.roborockAPI.getScenes(accessory.context);
-    for (const scene of scenes) {
-      const service = this.accessory.getService(scene.name) ||
-        this.accessory.addService(this.platform.Service.Switch, scene.name, `scene_${scene.id}`);
-      service.getCharacteristic(this.platform.Characteristic.On)
-        .onSet(async (value) => this.runScene(scene.id, value))
-        .onGet(() => false);
-      this.sceneServices[`scene_${scene.id}`] = service;
-    }
+    this.updateSceneServices();
 
   }
 
@@ -203,7 +195,8 @@ export default class RoborockVacuumAccessory {
   
       }
       else if(id == 'HomeData') {
-       this.updateDeviceState();   
+       this.updateDeviceState();
+       this.updateSceneServices();
       }
     
     
@@ -261,6 +254,33 @@ export default class RoborockVacuumAccessory {
     const service = this.sceneServices[`scene_${sceneId}`];
     if(service) {
       service.updateCharacteristic(this.platform.Characteristic.On, false);
+    }
+  }
+
+  updateSceneServices() {
+    const scenes = this.platform.roborockAPI.getScenes(this.accessory.context);
+    const existing = new Set(Object.keys(this.sceneServices).map(k => parseInt(k.replace('scene_', ''))));
+    const newIds = new Set<number>();
+    for (const scene of scenes) {
+      newIds.add(scene.id);
+      if (!this.sceneServices[`scene_${scene.id}`]) {
+        const service = this.accessory.getService(scene.name) ||
+          this.accessory.addService(this.platform.Service.Switch, scene.name, `scene_${scene.id}`);
+        service.getCharacteristic(this.platform.Characteristic.On)
+          .onSet(async (value) => this.runScene(scene.id, value))
+          .onGet(() => false);
+        this.sceneServices[`scene_${scene.id}`] = service;
+      }
+    }
+    for (const idStr of Object.keys(this.sceneServices)) {
+      const id = parseInt(idStr.replace('scene_', ''));
+      if (!newIds.has(id)) {
+        const svc = this.sceneServices[idStr];
+        if (svc) {
+          this.accessory.removeService(svc);
+        }
+        delete this.sceneServices[idStr];
+      }
     }
   }
 
