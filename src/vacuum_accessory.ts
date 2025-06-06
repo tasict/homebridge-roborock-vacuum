@@ -133,10 +133,50 @@ export default class RoborockVacuumAccessory {
         this.platform.log.debug(`Updating scene switches for device ${this.accessory.context}`);
         
         // Remove existing scene switches that are no longer available
-        this.removeOldSceneSwitches(deviceScenes);
-        
+       
         // Add new scene switches
-        this.addNewSceneSwitches(deviceScenes);
+        for (const scene of deviceScenes) {
+          
+          try{
+            const sceneId = scene.id.toString();
+            const sceneName = scene.name.replaceAll(" ", "_");
+;
+          
+            if (!this.sceneServices.has(sceneId) && scene.enabled) {
+              this.platform.log.debug(`Adding scene switch for: ${scene.name} (ID: ${sceneId})`);
+
+              const switchService = this.accessory.getServiceById(this.platform.Service.Switch, `scene-${sceneId}`) || this.accessory.addService(
+                this.platform.Service.Switch,
+                sceneName,
+                `scene-${sceneId}`
+              );
+
+              switchService.setCharacteristic(
+                this.platform.Characteristic.Name,
+                sceneName
+              );
+              
+              switchService.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
+              switchService.setCharacteristic(this.platform.Characteristic.ConfiguredName, sceneName);
+
+              switchService.getCharacteristic(this.platform.Characteristic.On)
+                .onSet(this.setSceneSwitch.bind(this, sceneId))
+                .onGet(this.getSceneSwitch.bind(this, sceneId));
+              
+              this.sceneServices.set(sceneId, switchService);
+            }
+
+          }catch(e) {
+            this.platform.log.error(`Error processing scene ${scene.name}: ${e}`);
+          }
+
+
+
+        }
+
+        
+
+
         
         // Update current scenes
         this.currentScenes = deviceScenes;
@@ -160,71 +200,7 @@ export default class RoborockVacuumAccessory {
     return JSON.stringify(currentIds) !== JSON.stringify(newIds);
   }
 
-  /**
-   * Remove scene switches that are no longer available
-   */
-  private removeOldSceneSwitches(newScenes: any[]) {
-    const newSceneIds = new Set(newScenes.map(scene => scene.id.toString()));
-    
-    for (const [sceneId, service] of this.sceneServices.entries()) {
 
-      try{
-          if (!newSceneIds.has(sceneId)) {
-          this.platform.log.debug(`Removing scene switch for scene ID: ${sceneId}`);
-          this.accessory.removeService(service);
-          this.sceneServices.delete(sceneId);
-      }
-
-      }catch(e) {
-        this.platform.log.error(`Error processing scene ${sceneId}: ${e}`);
-      }
-
-
-    }
-  }
-
-  /**
-   * Add new scene switches
-   */
-  private addNewSceneSwitches(scenes: any[]) {
-    for (const scene of scenes) {
-
-      try{
-
-        const sceneId = scene.id.toString();
-      
-        if (!this.sceneServices.has(sceneId) && scene.enabled) {
-          this.platform.log.debug(`Adding scene switch for: ${scene.name} (ID: ${sceneId})`);
-          
-          const switchService = this.accessory.addService(
-            this.platform.Service.Switch,
-            scene.name,
-            `scene-${sceneId}`
-          );
-
-          switchService.setCharacteristic(
-            this.platform.Characteristic.Name,
-            scene.name
-          );
-          
-          switchService.addOptionalCharacteristic(this.platform.Characteristic.ConfiguredName);
-          switchService.setCharacteristic(this.platform.Characteristic.ConfiguredName, scene.name);
-
-          switchService.getCharacteristic(this.platform.Characteristic.On)
-            .onSet(this.setSceneSwitch.bind(this, sceneId))
-            .onGet(this.getSceneSwitch.bind(this, sceneId));
-          
-          this.sceneServices.set(sceneId, switchService);
-        }
-
-      }catch(e) {
-        this.platform.log.error(`Error processing scene ${scene.name}: ${e}`);
-      }
-
-
-
-    }
-  }
 
   /**
    * Handle scene switch activation
