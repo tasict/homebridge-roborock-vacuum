@@ -174,10 +174,21 @@ export default class RoborockVacuumAccessory {
 
         }
 
-        
+                
+        //Remove scene switches that are no longer available
+        this.accessory.services.forEach((service) => {
+          if (service instanceof this.platform.Service.Switch && service.UUID.startsWith('scene-')) {
+            const sceneId = service.UUID.replace('scene-', '');
 
+            // Check if the scene id in deviceScenes
+            if(!deviceScenes.some(scene => scene.id.toString() === sceneId)) {
+              this.platform.log.debug(`Removing scene switch for: ${service.displayName} (ID: ${sceneId})`);
+              this.accessory.removeService(service);
+              this.sceneServices.delete(sceneId);              
+            }
+          }
+        });
 
-        
         // Update current scenes
         this.currentScenes = deviceScenes;
       }
