@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0
+## 1.2.1
 - **New Feature**: Dynamic Scene Switch Management
   - Automatically create HomeKit switch buttons for each device's available scenes
   - Scene switches named after scene names with momentary switch behavior
