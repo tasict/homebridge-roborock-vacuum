@@ -1,0 +1,58 @@
+<link rel="stylesheet" href="styles.css" />
+
+<main class="container">
+  <header>
+    <h1>Roborock Vacuum</h1>
+    <p class="subtitle">Manage login and two-factor authentication for your Roborock account.</p>
+  </header>
+
+  <section class="card">
+    <h2>Account</h2>
+    <label>
+      Email
+      <input id="email" type="email" placeholder="name@example.com" />
+    </label>
+    <label id="password-row">
+      Password
+      <input id="password" type="password" placeholder="Password" />
+    </label>
+    <label>
+      Region
+      <select id="base-url">
+        <option value="https://usiot.roborock.com">US (usiot.roborock.com)</option>
+        <option value="https://euiot.roborock.com">EU (euiot.roborock.com)</option>
+        <option value="https://cniot.roborock.com">CN (cniot.roborock.com)</option>
+        <option value="https://api.roborock.com">Asia (api.roborock.com)</option>
+      </select>
+    </label>
+    <label>
+      Skip Devices
+      <input id="skip-devices" type="text" placeholder="Comma-separated device IDs" />
+    </label>
+    <label class="checkbox">
+      <input id="debug-mode" type="checkbox" />
+      Enable debug logging
+    </label>
+    <div class="actions">
+      <button id="login" class="secondary">Login</button>
+      <button id="logout" class="secondary hidden">Logout</button>
+    </div>
+  </section>
+
+  <section class="card" id="two-factor-section">
+    <h2>Two-Factor Authentication</h2>
+    <p class="help">If your account requires 2FA, send a verification email and enter the code below.</p>
+    <label id="code-row">
+      Verification Code
+      <input id="two-factor-code" type="text" placeholder="6-digit code" />
+    </label>
+    <div class="actions">
+      <button id="send-2fa" class="primary">Send 2FA Email</button>
+      <button id="verify-2fa" class="secondary">Verify Code</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast-container" class="toast-container"></div>
+
+<script src="index.js"></script>

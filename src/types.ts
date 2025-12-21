@@ -2,6 +2,8 @@ import { PlatformConfig } from 'homebridge';
 
 export interface RoborockPlatformConfig extends PlatformConfig {
   email: string;
-  password: string;
+  password?: string;
   debugMode: boolean;
+  baseURL?: string;
+  encryptedToken?: string;
 }

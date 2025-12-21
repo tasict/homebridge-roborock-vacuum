@@ -8,6 +8,8 @@ const express = require("express");
 const { debug } = require("console");
 const { get } = require("http");
 
+const roborockAuth = require("./lib/roborockAuth");
+
 const rrLocalConnector = require("./lib/localConnector").localConnector;
 const roborock_mqtt_connector = require("./lib/roborock_mqtt_connector").roborock_mqtt_connector;
 const rrMessage = require("./lib/message").message;
@@ -67,6 +69,13 @@ class Roborock {
 		this.name = "roborock";
 		this.deviceNotify = null;
 		this.baseURL = options.baseURL || "usiot.roborock.com";
+
+		this.userData = options.userData || null;
+		this.authState = {
+			twoFactorRequired: false,
+			statusMessage: "",
+		};
+		this.pendingAuth = null;
 	}
 
 	isInited() {
@@ -113,7 +122,7 @@ class Roborock {
 
 		try {
 			if(id == "UserData" || id == "clientID"){
-				return JSON.parse(fs.readFileSync(path.resolve(__dirname, `./data/${id}`), 'utf8'));
+				return JSON.parse(fs.readFileSync(this.getPersistPath(id), 'utf8'));
 			}
 
 			return this.states[id];
@@ -129,7 +138,8 @@ class Roborock {
 		try {
 
 			if(id == "UserData" || id == "clientID"){
-				fs.writeFileSync(path.resolve(__dirname, `./data/${id}`), JSON.stringify(state, null, 2, 'utf8'));
+				fs.mkdirSync(path.dirname(this.getPersistPath(id)), { recursive: true });
+				fs.writeFileSync(this.getPersistPath(id), JSON.stringify(state, null, 2, 'utf8'));
 			}
 
 			this.states[id] = state;
@@ -151,7 +161,7 @@ class Roborock {
 		try {
 
 			if(id == "UserData" || id == "clientID"){
-				fs.unlinkSync(path.resolve(__dirname, `./data/${id}`));
+				fs.unlinkSync(this.getPersistPath(id));
 			}
 
 			delete this.states[id];
@@ -165,6 +175,30 @@ class Roborock {
 	subscribeStates(id) {
 		this.log.debug(`subscribeStates: ${id}`);
 	}	
+
+	getPersistPath(id) {
+		const storagePath = this.config.storagePath;
+		if (storagePath) {
+			return path.join(storagePath, `roborock.${id}`);
+		}
+		return path.resolve(__dirname, `./data/${id}`);
+	}
+
+	parseSkipDevices(value) {
+		if (!value) {
+			return [];
+		}
+		if (Array.isArray(value)) {
+			return value.map((entry) => `${entry}`.trim()).filter((entry) => entry);
+		}
+		if (typeof value === "string") {
+			return value
+				.split(",")
+				.map((entry) => entry.trim())
+				.filter((entry) => entry);
+		}
+		return [];
+	}
 
 	/**
 	 * Is called when databases are connected and adapter received configuration.
@@ -190,24 +224,33 @@ class Roborock {
 			this.log.error(`Error while retrieving or setting clientID: ${error.message}`);
 		}
 
-		if (!this.config.username || !this.config.password) {
-			this.log.error("Username or password missing!");
+		if (!this.config.username) {
+			this.log.error("Email is missing!");
+			return;
+		}
+		if (!this.config.password && !this.isValidUserData(this.userData)) {
+			this.log.error("Password or valid token is missing!");
 			return;
 		}
 
 		this.instance = clientID;
 		
 		// Initialize the login API (which is needed to get access to the real API).
-		this.loginApi = axios.create({
-			baseURL: 'https://' + this.baseURL,
-			headers: {
-				header_clientid: crypto.createHash("md5").update(this.config.username).update(clientID).digest().toString("base64"),
-			},
+		this.loginApi = roborockAuth.createLoginApi({
+			baseURL: this.baseURL,
+			username: this.config.username,
+			clientID,
+			language: this.language,
 		});
 		await this.setStateAsync("info.connection", { val: true, ack: true });
 		// api/v1/getUrlByEmail(email = ...)
 
 		const userdata = await this.getUserData(this.loginApi);
+		if (!userdata) {
+			this.log.error("Login failed or requires 2FA. Please complete authentication in the Config UI.");
+			await this.setStateAsync("info.connection", { val: false, ack: true });
+			return;
+		}
 
 		try {
 			this.loginApi.defaults.headers.common["Authorization"] = userdata.token;
@@ -258,12 +301,14 @@ class Roborock {
 						ack: true,
 					});
 
-					// skip devices that sn in ingoredDevices
+					// skip devices that sn in ignoredDevices or skipDevices
 					const ignoredDevices = this.config.ignoredDevices || [];
+					const skipDevices = this.parseSkipDevices(this.config.skipDevices);
+					const ignoredSet = new Set([...ignoredDevices, ...skipDevices]);
 					// create devices and set states
 					this.products = homedataResult.products;
 					this.devices = homedataResult.devices;
-					this.devices = this.devices.filter((device) => !ignoredDevices.includes(device.sn));
+					this.devices = this.devices.filter((device) => !ignoredSet.has(device.sn));
 					this.localKeys = new Map(this.devices.map((device) => [device.duid, device.localKey]));
 
 					// this.adapter.log.debug(`initUser test: ${JSON.stringify(Array.from(this.adapter.localKeys.entries()))}`);
@@ -352,32 +397,143 @@ class Roborock {
 
 	async getUserData(loginApi) {
 		try {
-			const response = await loginApi.post(
-				"api/v1/login",
-				new URLSearchParams({
-					username: this.config.username,
-					password: this.config.password,
-					needtwostepauth: "false",
-				}).toString()
-			);
-			const userdata = response.data.data;
-
-			if (!userdata) {
-				throw new Error("Login returned empty userdata.");
+			if (this.isValidUserData(this.userData)) {
+				this.log.info("Using session from config.");
+				return this.userData;
 			}
 
-			await this.setStateAsync("UserData", {
-				val: JSON.stringify(userdata),
-				ack: true,
+			const cachedState = await this.getStateAsync("UserData");
+			if (cachedState && cachedState.val) {
+				try {
+					const cached = JSON.parse(cachedState.val);
+					if (this.isValidUserData(cached)) {
+						this.userData = cached;
+						this.log.info("Using cached session from disk.");
+						return cached;
+					}
+				} catch (error) {
+					this.log.warn("Cached session is invalid and will be ignored.");
+				}
+			}
+
+			if (!this.config.password) {
+				this.log.error("Password is missing and no valid token is available.");
+				return null;
+			}
+
+			const signData = await this.ensureAuthSignature();
+			if (!signData) {
+				throw new Error("Failed to obtain login signature.");
+			}
+
+			const loginResult = await roborockAuth.loginByPassword(loginApi, {
+				email: this.config.username,
+				password: this.config.password,
+				k: signData.k,
+				s: signData.s,
 			});
 
-			return userdata;
+			if (loginResult && loginResult.code === 200 && loginResult.data) {
+				this.userData = loginResult.data;
+				this.pendingAuth = null;
+				await this.setStateAsync("UserData", {
+					val: JSON.stringify(this.userData),
+					ack: true,
+				});
+				this.authState.twoFactorRequired = false;
+				this.authState.statusMessage = "";
+				return this.userData;
+			}
+
+			if (loginResult && loginResult.code === 2031) {
+				this.authState.twoFactorRequired = true;
+				this.authState.statusMessage = "Two-factor authentication required.";
+				this.log.error("Two-factor authentication required. Use the Config UI to continue.");
+				return null;
+			}
+
+			throw new Error(`Login failed: ${JSON.stringify(loginResult)}`);
 		} catch (error) {
 			this.log.error(`Error in getUserData: ${error.message}`);
 			await this.deleteStateAsync("HomeData");
 			await this.deleteStateAsync("UserData");
 			throw error;
 		}
+	}
+
+	isValidUserData(userdata) {
+		return userdata && userdata.token && userdata.rriot;
+	}
+
+	async ensureAuthSignature() {
+		if (this.pendingAuth && this.pendingAuth.k && this.pendingAuth.s) {
+			return this.pendingAuth;
+		}
+
+		if (!this.loginApi) {
+			throw new Error("Login API is not initialized.");
+		}
+
+		const s = crypto.randomBytes(12).toString("base64").substring(0, 16).replace(/\+/g, "X").replace(/\//g, "Y");
+		const signData = await roborockAuth.signRequest(this.loginApi, s);
+		if (!signData || !signData.k) {
+			return null;
+		}
+
+		this.pendingAuth = { k: signData.k, s };
+		return this.pendingAuth;
+	}
+
+	async sendTwoFactorEmail() {
+		if (!this.loginApi) {
+			throw new Error("Login API is not initialized.");
+		}
+
+		try {
+			await roborockAuth.requestEmailCode(this.loginApi, this.config.username);
+		} catch (error) {
+			this.log.error(`2FA email request failed: ${error.message}`);
+			throw error;
+		}
+		this.authState.twoFactorRequired = true;
+		this.authState.statusMessage = "Verification email sent.";
+		return { ok: true };
+	}
+
+	async verifyTwoFactorCode(code) {
+		if (!this.loginApi) {
+			throw new Error("Login API is not initialized.");
+		}
+
+		const signData = await this.ensureAuthSignature();
+		if (!signData) {
+			throw new Error("Missing login signature.");
+		}
+
+		const region = roborockAuth.getRegionConfig(this.baseURL);
+		const loginResult = await roborockAuth.loginWithCode(this.loginApi, {
+			email: this.config.username,
+			code,
+			country: region.country,
+			countryCode: region.countryCode,
+			k: signData.k,
+			s: signData.s,
+		});
+
+		if (loginResult && loginResult.code === 200 && loginResult.data) {
+			this.userData = loginResult.data;
+			this.pendingAuth = null;
+			await this.setStateAsync("UserData", {
+				val: JSON.stringify(this.userData),
+				ack: true,
+			});
+			this.authState.twoFactorRequired = false;
+			this.authState.statusMessage = "Two-factor authentication completed.";
+			return this.userData;
+		}
+
+		this.log.error(`2FA verification failed: ${JSON.stringify(loginResult)}`);
+		throw new Error(`2FA verification failed: ${loginResult?.msg || "Unknown error"}`);
 	}
 
 	async getNetworkInfo() {
@@ -1441,4 +1597,3 @@ class Roborock {
 module.exports = {Roborock};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-

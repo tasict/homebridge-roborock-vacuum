@@ -18,6 +18,7 @@ import {
   PLUGIN_NAME,
 } from './settings';
 import { forEach } from 'jszip';
+import { decryptSession } from './crypto';
 
 const Roborock = require("../roborockLib/roborockAPI").Roborock;
 
@@ -62,7 +63,20 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     const baseURL = this.platformConfig.baseURL;
     const debugMode = this.platformConfig.debugMode;
 
-    this.roborockAPI = new Roborock({username: username, password: password, debug: debugMode, baseURL: baseURL, log: this.log});
+    const storagePath = this.api.user.storagePath();
+    const decryptedSession = this.platformConfig.encryptedToken
+      ? decryptSession(this.platformConfig.encryptedToken, storagePath)
+      : null;
+
+    this.roborockAPI = new Roborock({
+      username: username,
+      password: password,
+      debug: debugMode,
+      baseURL: baseURL,
+      log: this.log,
+      userData: decryptedSession,
+      storagePath: storagePath,
+    });
   
     /**
      * When this event is fired it means Homebridge has restored all cached accessories from disk.
@@ -98,9 +112,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       return;
     }
 
-    if (!this.platformConfig.password) {
+    if (!this.platformConfig.password && !this.platformConfig.encryptedToken) {
       this.log.error('Password is not configured - aborting plugin start. '
-        + 'Please set the field `password` in your config and restart Homebridge.');
+        + 'Please set `password` or complete login in the Config UI.');
       return;
     }
 

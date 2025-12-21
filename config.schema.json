@@ -1,6 +1,9 @@
 {
     "pluginAlias": "RoborockVacuumPlatform",
     "pluginType": "platform",
+    "singular": true,
+    "customUi": true,
+    "customUiPath": "./homebridge-ui",
     "schema": {
       "type": "object",
       "properties": {
@@ -16,15 +19,21 @@
           "placeholder": "Password",
           "description": "Roborock account password"
         },
-        "skipDevices": {
-          "title": "Skip Device",
+        "encryptedToken": {
+          "title": "Encrypted Token",
           "type": "string",
-          "description": "Device ID to skip"
+          "description": "Encrypted Roborock session data (managed by the UI)",
+          "readOnly": true
+        },
+        "skipDevices": {
+          "title": "Skip Devices",
+          "type": "string",
+          "description": "Comma-separated device IDs to skip"
         },
         "baseURL": {
           "type": "string",
-          "default": "usiot.roborock.com",
-          "description": "Roborock API endpoint USA: usiot.roborock.com, Europe: euiot.roborock.com"
+          "default": "https://usiot.roborock.com",
+          "description": "Roborock API endpoint: https://usiot.roborock.com (US), https://euiot.roborock.com (EU), https://cniot.roborock.com (CN), https://api.roborock.com (Asia)"
         }
         ,
         "debugMode": {
@@ -34,6 +43,6 @@
           "default": false
         }
       },
-      "required": ["email", "password"]
+      "required": ["email"]
     }
   }
