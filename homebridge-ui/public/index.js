@@ -200,6 +200,8 @@ function setLoggedInState(isLoggedIn) {
   elements.twoFactorSection.classList.toggle('hidden', isLoggedIn);
   elements.email.readOnly = isLoggedIn;
   elements.email.parentElement.classList.toggle('readonly', isLoggedIn);
+  elements.baseUrl.disabled = isLoggedIn;
+  elements.baseUrl.parentElement.classList.toggle('readonly', isLoggedIn);
 }
 
 async function updatePluginConfig(patch) {

@@ -102,6 +102,11 @@ input::placeholder {
   opacity: 0.75;
 }
 
+.readonly select {
+  background: #111827;
+  opacity: 0.75;
+}
+
 .actions {
   display: flex;
   gap: 12px;
