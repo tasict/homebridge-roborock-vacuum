@@ -124,7 +124,7 @@ class vacuum {
 						const getCommand = parameter.replace("set", "get");
 						await this.getParameter(duid, getCommand);
 					} else {
-						const result = await this.adapter.messageQueueHandler.sendRequest(duid, parameter);
+						const result = await this.adapter.messageQueueHandler.sendRequest(duid, parameter, []);
 						this.adapter.log.debug(`Command: ${parameter} result: ${result}`);
 					}
 			}
