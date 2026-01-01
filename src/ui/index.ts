@@ -5,11 +5,20 @@ import { encryptSession } from "../crypto";
 
 const roborockAuth = require("../../roborockLib/lib/roborockAuth");
 
+// Type definition for HomebridgePluginUiServer to maintain type safety
+interface IHomebridgePluginUiServer {
+  homebridgeStoragePath?: string;
+  onRequest(path: string, handler: (payload: any) => Promise<any>): void;
+  ready(): void;
+}
+
+type HomebridgePluginUiServerConstructor = new () => IHomebridgePluginUiServer;
+
 class RoborockUiServer {
-  private homebridgePluginUiServer: any;
+  private homebridgePluginUiServer: IHomebridgePluginUiServer;
   private homebridgeStoragePath?: string;
 
-  constructor(HomebridgePluginUiServer: any) {
+  constructor(HomebridgePluginUiServer: HomebridgePluginUiServerConstructor) {
     this.homebridgePluginUiServer = new HomebridgePluginUiServer();
     this.homebridgeStoragePath =
       this.homebridgePluginUiServer.homebridgeStoragePath;
