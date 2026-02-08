@@ -918,6 +918,8 @@ class Roborock {
 				case "roborock.vacuum.a10":
 				case "roborock.vacuum.a40":
 				case "roborock.vacuum.a140":
+				case "roborock.vacuum.a95":
+				case "roborock.vacuum.a159":
 				case "roborock.vacuum.ss07":
 					//do nothing
 					break;

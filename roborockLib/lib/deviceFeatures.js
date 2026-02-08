@@ -596,6 +596,8 @@ class deviceFeatures {
 				"roborock.vacuum.a21", // Qrevo Slim
 				"roborock.vacuum.a144", // Saros 10R
 				"roborock.vacuum.a140",
+				"roborock.vacuum.a95",
+				"roborock.vacuum.a159",
 				"roborock.vacuum.ss07",
 			].includes(robotModel),
 			// isShakeMopStrengthSupported: p.DMM.currentProduct == p.Products.TanosS || p.DMM.currentProduct == p.Products.TanosSPlus || p.DMM.isGarnet || p.DMM.isTopazSV || p.DMM.isPearlPlus || p.DMM.isCoral || p.DMM.isTopazS || p.DMM.isTopazSPlus || p.DMM.isTopazSC || p.DMM.isTopazSV || p.DMM.isPearlPlus || p.DMM.isTanosSMax || p.DMM.isUltron || p.DMM.isUltronSPlus || p.DMM.isUltronSMop || p.DMM.isUltronSV || p.DMM.isPearl
@@ -618,6 +620,8 @@ class deviceFeatures {
 				"roborock.vacuum.a101", // Q Revo Pro
 				"roborock.vacuum.a144", // Saros 10R
 				"roborock.vacuum.a140",
+				"roborock.vacuum.a95",
+				"roborock.vacuum.a159",
 				"roborock.vacuum.ss07",
 			].includes(robotModel),
 			// isWaterBoxSupported: [p.Products.Tanos_CE, p.Products.Tanos_CN].hasElement(p.DMM.currentProduct)
@@ -646,6 +650,8 @@ class deviceFeatures {
 				"roborock.vacuum.a21", // Qrevo Slim
 				"roborock.vacuum.a144", // Saros 10R
 				"roborock.vacuum.a140",
+				"roborock.vacuum.a95",
+				"roborock.vacuum.a159",
 				"roborock.vacuum.ss07",
 
 			].includes(robotModel),
@@ -672,6 +678,8 @@ class deviceFeatures {
 				"roborock.vacuum.a117", // Qrevo Master
 				"roborock.vacuum.a144", // Saros 10R
 				"roborock.vacuum.a140",
+				"roborock.vacuum.a95",
+				"roborock.vacuum.a159",
 				"roborock.vacuum.ss07",
 
 			].includes(robotModel),
@@ -974,6 +982,38 @@ class deviceFeatures {
 					"set_last_clean_t",
 				],
 				"roborock.vacuum.a140": [
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_common_status",
+					"set_dss",
+					"set_rss",
+					"set_kct",
+					"set_in_warmup",
+					"set_last_clean_t",
+					"set_map_flag",
+					"set_back_type",
+					"set_charge_status",
+					"set_clean_percent",
+					"set_cleaned_area",
+					"set_switch_status",
+				],
+				"roborock.vacuum.a95": [
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_common_status",
+					"set_dss",
+					"set_rss",
+					"set_kct",
+					"set_in_warmup",
+					"set_last_clean_t",
+					"set_map_flag",
+					"set_back_type",
+					"set_charge_status",
+					"set_clean_percent",
+					"set_cleaned_area",
+					"set_switch_status",
+				],
+				"roborock.vacuum.a159": [
 					"setCleaningRecordsString",
 					"setConsumablesInt",
 					"set_common_status",

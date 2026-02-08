@@ -37,6 +37,9 @@ Roborock Q5 Pro
 Roborock Q Revo Pro
 Roborock Qrevo S
 Roborock Qrevo Curve
+Roborock (roborock.vacuum.a95)
+Roborock (roborock.vacuum.a159)
+Roborock (roborock.vacuum.ss07)
 
 
 ## Requirements
