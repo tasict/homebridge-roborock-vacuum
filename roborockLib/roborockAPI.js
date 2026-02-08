@@ -42,6 +42,7 @@ class Roborock {
 		this.localKeys = null;
 		this.roomIDs = {};
 		this.vacuums = {};
+		this.initializedVacuumDuids = new Set();
 		this.socket = null;
 
 		this.objects = {};
@@ -537,16 +538,19 @@ class Roborock {
 	}
 
 	async getNetworkInfo() {
-		const devices = this.devices;
-		for (const device in devices) {
-			const duid = devices[device].duid;
-			const vacuum = this.vacuums[duid];
-			await vacuum.getParameter(duid, "get_network_info");
+		for (const device of this.devices) {
+			const duid = device.duid;
+			if (!this.hasInitializedVacuum(duid)) {
+				continue;
+			}
+
+			await this.vacuums[duid].getParameter(duid, "get_network_info");
 		}
 	}
 
 	async createDevices() {
 		const devices = this.devices;
+		this.initializedVacuumDuids.clear();
 
 		for (const device of devices) {
 			const duid = device.duid;
@@ -556,14 +560,15 @@ class Roborock {
 
 			const robotModel = this.getProductAttribute(duid, "model");
 
-			//model nust starts with "roborock.vacuum."
-			if (!robotModel.startsWith("roborock.vacuum.")) {
-				this.log.error(`Unknown model: ${robotModel}`);
+			// model must start with "roborock.vacuum."
+			if (!this.isSupportedVacuumModel(robotModel)) {
+				this.log.warn(`Unsupported vacuum model '${robotModel || "unknown"}' for device ${duid}; skipping initialization.`);
 				continue;
 			}
 
 
 			this.vacuums[duid] = new vacuum_class(this, robotModel);
+			this.initializedVacuumDuids.add(duid);
 			this.vacuums[duid].name = name;
 			this.vacuums[duid].features = new deviceFeatures(this, device.featureSet, device.newFeatureSet, duid);
 
@@ -586,6 +591,10 @@ class Roborock {
 
 		for (const device of devices) {
 			const duid = device.duid;
+			if (!this.hasInitializedVacuum(duid)) {
+				continue;
+			}
+
 			const robotModel = this.getProductAttribute(duid);
 
 			this.vacuums[duid].mainUpdateInterval = () =>
@@ -790,6 +799,10 @@ class Roborock {
 	}
 
 	startMainUpdateInterval(duid, online) {
+		if (!this.hasInitializedVacuum(duid)) {
+			return;
+		}
+
 		const robotModel = this.getProductAttribute(duid, "model");
 
 		this.vacuums[duid].mainUpdateInterval = () =>
@@ -874,13 +887,18 @@ class Roborock {
 	}
 
 	async manageDeviceIntervals(duid) {
+		if (!this.hasInitializedVacuum(duid)) {
+			return false;
+		}
+
 		return this.onlineChecker(duid)
 			.then((onlineState) => {
-				if (!onlineState && this.vacuums[duid].mainUpdateInterval) {
-					this.clearInterval(this.vacuums[duid].getStatusIntervall);
-					this.clearInterval(this.vacuums[duid].mainUpdateInterval);
-				} else if (!this.vacuums[duid].mainUpdateInterval) {
-					this.vacuums[duid].getStatusIntervall();
+				const vacuum = this.vacuums[duid];
+				if (!onlineState && vacuum.mainUpdateInterval) {
+					this.clearInterval(vacuum.getStatusIntervall);
+					this.clearInterval(vacuum.mainUpdateInterval);
+				} else if (!vacuum.mainUpdateInterval) {
+					vacuum.getStatusIntervall();
 					this.startMainUpdateInterval(duid, onlineState);
 				}
 				return onlineState;
@@ -892,14 +910,18 @@ class Roborock {
 			});
 	}
 
+	isSupportedVacuumModel(model) {
+		return typeof model === "string" && model.startsWith("roborock.vacuum.");
+	}
+
+	hasInitializedVacuum(duid) {
+		return this.initializedVacuumDuids.has(duid) && !!this.vacuums[duid];
+	}
+
 	async updateDataMinimumData(duid, vacuum, robotModel) {
 		this.log.debug(`Latest data requested`);
 
-		if (robotModel == "roborock.wm.a102") {
-			// nothing for now
-		} else if (robotModel == "roborock.wetdryvac.a56") {
-			// nothing for now
-		} else {
+		 if (this.isSupportedVacuumModel(robotModel)) {
 			await vacuum.getParameter(duid, "get_room_mapping");
 
 			await vacuum.getParameter(duid, "get_consumable");
@@ -938,12 +960,20 @@ class Roborock {
 					await vacuum.getParameter(duid, "get_water_box_custom_mode");
 			}
 		}
+		else{
+			this.log.warn(`Unsupported model '${robotModel || "unknown"}'. Skipping minimum data update for ${duid}.`);
+		}
 	}
 
 	async updateDataExtraData(duid, vacuum) {
-		await vacuum.getParameter(duid, "get_fw_features");
 
-		await vacuum.getParameter(duid, "get_multi_maps_list");
+		try	{
+			await vacuum.getParameter(duid, "get_fw_features");
+			await vacuum.getParameter(duid, "get_multi_maps_list");
+		} catch (error) {
+			this.log.error(`Failed to get extra data for ${vacuum}: ${error.message}`);
+		}
+
 		
 	}
 
