@@ -8,3 +8,9 @@ node_modules
 .DS_Store
 .vscod
 .idea
+openspec/
+.opencode/
+.github/
+.gemini/
+AGENTS.md
+
