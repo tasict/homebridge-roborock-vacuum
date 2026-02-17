@@ -2,6 +2,7 @@
 
 const path = require("path");
 const fs = require('fs');
+const os = require("os");
 const axios = require("axios");
 const crypto = require("crypto");
 const express = require("express");
@@ -78,6 +79,7 @@ class Roborock {
 			statusMessage: "",
 		};
 		this.pendingAuth = null;
+		this.persistBasePath = null;
 	}
 
 	isInited() {
@@ -124,12 +126,27 @@ class Roborock {
 
 		try {
 			if(id == "UserData" || id == "clientID"){
-				return JSON.parse(fs.readFileSync(this.getPersistPath(id), 'utf8'));
+				const persistPath = this.getPersistPath(id);
+				if (fs.existsSync(persistPath)) {
+					return JSON.parse(fs.readFileSync(persistPath, "utf8"));
+				}
+
+				const legacyPath = this.getLegacyPersistPath(id);
+				if (legacyPath && fs.existsSync(legacyPath)) {
+					const legacyState = JSON.parse(fs.readFileSync(legacyPath, "utf8"));
+					this.tryMigrateLegacyStateFile(id, legacyState, legacyPath, persistPath);
+					return legacyState;
+				}
+
+				return null;
 			}
 
 			return this.states[id];
 			
 		}catch(error) {
+			if (error && error.code == "ENOENT") {
+				return null;
+			}
 			this.log.error(`getStateAsync: ${error}`);
 		}
 
@@ -140,8 +157,9 @@ class Roborock {
 		try {
 
 			if(id == "UserData" || id == "clientID"){
-				fs.mkdirSync(path.dirname(this.getPersistPath(id)), { recursive: true });
-				fs.writeFileSync(this.getPersistPath(id), JSON.stringify(state, null, 2, 'utf8'));
+				const persistPath = this.getPersistPath(id);
+				fs.mkdirSync(path.dirname(persistPath), { recursive: true });
+				fs.writeFileSync(persistPath, JSON.stringify(state, null, 2, 'utf8'));
 			}
 
 			this.states[id] = state;
@@ -151,6 +169,17 @@ class Roborock {
 			}
 			
 		}catch(error) {
+			if ((id == "UserData" || id == "clientID") && error && error.code == "EACCES") {
+				try {
+					const fallbackPath = path.join(this.forceTemporaryPersistPath(), `roborock.${id}`);
+					fs.writeFileSync(fallbackPath, JSON.stringify(state, null, 2, 'utf8'));
+					this.states[id] = state;
+					this.log.warn(`Write access denied for persistent state. Saved '${id}' in temporary path '${fallbackPath}'.`);
+					return;
+				} catch (fallbackError) {
+					this.log.error(`setStateAsync fallback failed: ${fallbackError}`);
+				}
+			}
 			this.log.error(`setStateAsync: ${error}`);
 		}
 	}
@@ -163,7 +192,15 @@ class Roborock {
 		try {
 
 			if(id == "UserData" || id == "clientID"){
-				fs.unlinkSync(this.getPersistPath(id));
+				const persistPath = this.getPersistPath(id);
+				if (fs.existsSync(persistPath)) {
+					fs.unlinkSync(persistPath);
+				}
+
+				const legacyPath = this.getLegacyPersistPath(id);
+				if (legacyPath && legacyPath !== persistPath && fs.existsSync(legacyPath)) {
+					fs.unlinkSync(legacyPath);
+				}
 			}
 
 			delete this.states[id];
@@ -179,11 +216,72 @@ class Roborock {
 	}	
 
 	getPersistPath(id) {
-		const storagePath = this.config.storagePath;
-		if (storagePath) {
-			return path.join(storagePath, `roborock.${id}`);
+		const basePath = this.resolvePersistBasePath();
+		return path.join(basePath, `roborock.${id}`);
+	}
+
+	resolvePersistBasePath() {
+		if (this.persistBasePath) {
+			return this.persistBasePath;
 		}
+
+		const candidates = [];
+		if (this.config.storagePath) {
+			candidates.push(this.config.storagePath);
+		}
+		if (process.env.HOMEBRIDGE_STORAGE_PATH) {
+			candidates.push(process.env.HOMEBRIDGE_STORAGE_PATH);
+		}
+		candidates.push(path.resolve(__dirname, "./data"));
+		candidates.push(path.join(os.tmpdir(), "homebridge-roborock-vacuum"));
+
+		for (const candidate of candidates) {
+			if (!candidate) {
+				continue;
+			}
+
+			try {
+				const resolved = path.resolve(candidate);
+				fs.mkdirSync(resolved, { recursive: true });
+				fs.accessSync(resolved, fs.constants.W_OK);
+				this.persistBasePath = resolved;
+				return this.persistBasePath;
+			} catch (error) {
+				this.log.debug(`Persist path candidate '${candidate}' is not writable: ${error.message}`);
+			}
+		}
+
+		return this.forceTemporaryPersistPath();
+	}
+
+	forceTemporaryPersistPath() {
+		const emergencyPath = path.join(os.tmpdir(), "homebridge-roborock-vacuum");
+		fs.mkdirSync(emergencyPath, { recursive: true });
+		this.persistBasePath = emergencyPath;
+		this.log.warn(`Using emergency temporary persist path '${emergencyPath}'.`);
+		return this.persistBasePath;
+	}
+
+	getLegacyPersistPath(id) {
+		if (this.config.storagePath) {
+			return path.join(this.config.storagePath, `roborock.${id}`);
+		}
+
 		return path.resolve(__dirname, `./data/${id}`);
+	}
+
+	tryMigrateLegacyStateFile(id, state, legacyPath, persistPath) {
+		if (!state || !legacyPath || !persistPath || legacyPath === persistPath) {
+			return;
+		}
+
+		try {
+			fs.mkdirSync(path.dirname(persistPath), { recursive: true });
+			fs.writeFileSync(persistPath, JSON.stringify(state, null, 2, "utf8"));
+			this.log.info(`Migrated legacy '${id}' state file from '${legacyPath}' to '${persistPath}'.`);
+		} catch (error) {
+			this.log.debug(`Failed to migrate legacy '${id}' state file: ${error.message}`);
+		}
 	}
 
 	parseSkipDevices(value) {
