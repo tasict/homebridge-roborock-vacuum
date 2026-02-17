@@ -40,6 +40,7 @@ class Roborock {
 		this.language = options.language || "en";
 		
 		this.localKeys = null;
+		this.localL01Nonces = new Map();
 		this.roomIDs = {};
 		this.vacuums = {};
 		this.initializedVacuumDuids = new Set();

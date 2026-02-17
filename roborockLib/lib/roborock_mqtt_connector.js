@@ -146,18 +146,30 @@ class roborock_mqtt_connector {
 			try {
 				const duid = topic.split("/").slice(-1)[0];
 				const data = this.adapter.message._decodeMsg(message, duid);
+				if (!data) {
+					return;
+				}
 				// this.adapter.log.debug(`MESSAGE RECEIVED for duid ${duid} with key: ${this.adapter.localKeys.get(duid)} data: ${JSON.stringify(data)} raw: ${JSON.stringify(mqttMessageParser.parse(message))} message: ${message}`);
 				// this.adapter.log.debug(`MESSAGE RECEIVED for duid ${duid} with key: ${this.adapter.localKeys.get(duid)} data: ${JSON.stringify(data.toString("hex"))} message: ${message}`);
 				// this.adapter.log.debug(`MESSAGE RECEIVED for duid ${duid} with key: ${this.adapter.localKeys.get(duid)} data: ${JSON.stringify(data)}`);
 
 				// this.adapter.log.debug("Protocol: " + data.protocol);
 				if (data.protocol == 102) {
-					// sometimes JSON.parse(data.payload).dps["102"] is not a JSON. Check for this!
+					const parsedPayload = JSON.parse(data.payload);
 					let dps;
-					if (typeof JSON.parse(data.payload).dps["102"] != "undefined") {
-						dps = JSON.parse(JSON.parse(data.payload).dps["102"]);
-					} else {
-						dps = JSON.parse(data.payload).dps;
+					if (typeof parsedPayload.dps["102"] != "undefined") {
+						dps = JSON.parse(parsedPayload.dps["102"]);
+					}
+					else if (typeof parsedPayload.dps["10001"] != "undefined") {
+						if (typeof parsedPayload.dps["10001"] == "string") {
+							dps = JSON.parse(parsedPayload.dps["10001"]);
+						}
+						else {
+							dps = parsedPayload.dps["10001"];
+						}
+					}
+					else {
+						dps = parsedPayload.dps;
 					}
 
 					if(dps.id !== undefined){

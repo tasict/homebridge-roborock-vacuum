@@ -48,11 +48,22 @@ const localMessageParser = new Parser()
 	})
 	.uint32("crc32");
 
+const shortMessageParser = new Parser()
+	.endianess("big")
+	.string("version", {
+		length: 3,
+	})
+	.uint32("seq")
+	.uint32("random")
+	.uint32("timestamp")
+	.uint16("protocol");
+
 class localConnector {
 	constructor(adapter) {
 		this.adapter = adapter;
 
 		this.localClients = {};
+		this.l01HandshakeWaiters = new Map();
 	}
 
 	async createClient(duid, ip) {
@@ -61,8 +72,11 @@ class localConnector {
 		// Wrap the connect method in a promise to await its completion
 		await new Promise((resolve, reject) => {
 			client
-				.connect(58867, ip, () => {
+				.connect(58867, ip, async () => {
 					this.adapter.log.debug(`tcp client for ${duid} connected`);
+					this.ensureL01Handshake(duid).catch((error) => {
+						this.adapter.log.debug(`L01 handshake on connect failed for ${duid}: ${error.message}`);
+					});
 					resolve();
 				})
 				.on("error", (error) => {
@@ -96,11 +110,15 @@ class localConnector {
 					// this.adapter.log.debug(`chunkBuffer: ${client.chunkBuffer.toString("hex")}`);
 					while (offset + 4 <= client.chunkBuffer.length) {
 						const segmentLength = client.chunkBuffer.readUInt32BE(offset);
+						const currentBuffer = client.chunkBuffer.subarray(offset + 4, offset + segmentLength + 4);
 						// length of 17 does not contain any useful data.
-						// The parser for this looks like this: const shortMessageParser = new Parser().endianess("big").string("version", {length: 3,}).uint32("seq").uint32("random").uint32("timestamp").uint16("protocol")
+						// It seems to be protocol handshake metadata.
 						if (segmentLength != 17) {
-							const currentBuffer = client.chunkBuffer.subarray(offset + 4, offset + segmentLength + 4);
 							const data = this.adapter.message._decodeMsg(currentBuffer, duid);
+							if (!data) {
+								offset += 4 + segmentLength;
+								continue;
+							}
 
 							if (data.protocol == 4) {
 								const dps = JSON.parse(data.payload).dps;
@@ -125,6 +143,27 @@ class localConnector {
 								}
 							}
 						}
+						else {
+							try {
+								const shortMessage = shortMessageParser.parse(currentBuffer);
+								if (shortMessage.version == "L01" && shortMessage.protocol == 1) {
+									const currentNonces = this.adapter.localL01Nonces.get(duid) || {};
+									this.adapter.localL01Nonces.set(duid, {
+										connectNonce: currentNonces.connectNonce,
+										ackNonce: shortMessage.random,
+									});
+
+									const waiter = this.l01HandshakeWaiters.get(duid);
+									if (waiter) {
+										this.adapter.clearTimeout(waiter.timeout);
+										this.l01HandshakeWaiters.delete(duid);
+										waiter.resolve(true);
+									}
+								}
+							} catch (error) {
+								this.adapter.log.debug(`Failed parsing short local message for ${duid}: ${error.message}`);
+							}
+						}
 						offset += 4 + segmentLength;
 					}
 					this.clearChunkBuffer(duid);
@@ -136,6 +175,13 @@ class localConnector {
 
 		client.on("close", () => {
 			this.adapter.log.debug(`tcp client for ${duid} disconnected, attempting to reconnect...`);
+			const waiter = this.l01HandshakeWaiters.get(duid);
+			if (waiter) {
+				this.adapter.clearTimeout(waiter.timeout);
+				this.l01HandshakeWaiters.delete(duid);
+				waiter.reject(new Error(`TCP client closed during L01 handshake for ${duid}`));
+			}
+			this.adapter.localL01Nonces.delete(duid);
 			setTimeout(async () => {
 				await this.createClient(duid, ip);
 			}, 60000);
@@ -183,6 +229,57 @@ class localConnector {
 		if (this.localClients[duid]) {
 			return this.localClients[duid].connected;
 		}
+	}
+
+	async ensureL01Handshake(duid) {
+		const version = await this.adapter.getRobotVersion(duid);
+		if (version != "L01") {
+			return;
+		}
+
+		const client = this.localClients[duid];
+		if (!client || !client.connected) {
+			return;
+		}
+
+		const existingNonces = this.adapter.localL01Nonces.get(duid);
+		if (existingNonces && typeof existingNonces.connectNonce == "number" && typeof existingNonces.ackNonce == "number") {
+			return;
+		}
+
+		const timestamp = Math.floor(Date.now() / 1000);
+		const handshakeMessage = await this.adapter.message.buildRoborockMessage(duid, 1, timestamp, Buffer.alloc(0));
+		if (!handshakeMessage) {
+			throw new Error(`Failed to build protocol 1 handshake message for ${duid}`);
+		}
+
+		const connectNonce = handshakeMessage.readUInt32BE(7);
+		this.adapter.localL01Nonces.set(duid, {
+			connectNonce,
+			ackNonce: undefined,
+		});
+
+		if (this.l01HandshakeWaiters.has(duid)) {
+			const waiter = this.l01HandshakeWaiters.get(duid);
+			this.adapter.clearTimeout(waiter.timeout);
+			this.l01HandshakeWaiters.delete(duid);
+		}
+
+		const handshakePromise = new Promise((resolve, reject) => {
+			const timeout = this.adapter.setTimeout(() => {
+				this.l01HandshakeWaiters.delete(duid);
+				reject(new Error(`Timed out waiting for L01 handshake response for ${duid}`));
+			}, 3000);
+
+			this.l01HandshakeWaiters.set(duid, { resolve, reject, timeout });
+		});
+
+		const lengthBuffer = Buffer.alloc(4);
+		lengthBuffer.writeUInt32BE(handshakeMessage.length, 0);
+		const fullMessage = Buffer.concat([lengthBuffer, handshakeMessage]);
+		client.write(fullMessage);
+
+		await handshakePromise;
 	}
 
 	async getLocalDevices() {

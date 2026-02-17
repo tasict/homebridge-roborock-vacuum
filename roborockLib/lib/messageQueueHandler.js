@@ -9,6 +9,15 @@ class messageQueueHandler {
 
 	async sendRequest(duid, method, params, secure = false, photo = false) {
 		const remoteConnection = await this.adapter.isRemoteDevice(duid);
+		const version = await this.adapter.getRobotVersion(duid);
+
+		if (!remoteConnection && version == "L01") {
+			try {
+				await this.adapter.localConnector.ensureL01Handshake(duid);
+			} catch (error) {
+				this.adapter.log.debug(`L01 handshake before request failed for ${duid}: ${error.message}`);
+			}
+		}
 
 		let messageID = this.adapter.getRequestId();
 		if (photo) messageID = messageID % 256; // this is a special case. Otherwise photo requests will not have the correct ID in the response.
@@ -20,7 +29,7 @@ class messageQueueHandler {
 		} else {
 			protocol = 4;
 		}
-		const payload = this.adapter.message.buildPayload(protocol, messageID, method, params, secure, photo);
+		const payload = await this.adapter.message.buildPayload(duid, protocol, messageID, method, params, secure, photo);
 		const roborockMessage = await this.adapter.message.buildRoborockMessage(duid, protocol, timestamp, payload);
 
 		const deviceOnline = await this.adapter.onlineChecker(duid);
