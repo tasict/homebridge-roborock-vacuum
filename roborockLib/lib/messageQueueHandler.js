@@ -11,7 +11,17 @@ class messageQueueHandler {
 		const remoteConnection = await this.adapter.isRemoteDevice(duid);
 		const version = await this.adapter.getRobotVersion(duid);
 
-		if (!remoteConnection && version == "L01") {
+		const deviceOnline = await this.adapter.onlineChecker(duid);
+		const mqttConnectionState = this.adapter.rr_mqtt_connector.isConnected();
+		const localConnectionState = this.adapter.localConnector.isConnected(duid);
+
+		let useCloudConnection = remoteConnection || secure || photo || method == "get_network_info";
+		if (!useCloudConnection && !localConnectionState && mqttConnectionState) {
+			useCloudConnection = true;
+			this.adapter.log.info(`Local connection unavailable for ${duid}. Falling back to cloud connection for method ${method}.`);
+		}
+
+		if (!useCloudConnection && version == "L01") {
 			try {
 				await this.adapter.localConnector.ensureL01Handshake(duid);
 			} catch (error) {
@@ -23,18 +33,9 @@ class messageQueueHandler {
 		if (photo) messageID = messageID % 256; // this is a special case. Otherwise photo requests will not have the correct ID in the response.
 		const timestamp = Math.floor(Date.now() / 1000);
 
-		let protocol;
-		if (remoteConnection || secure || photo || method == "get_network_info") {
-			protocol = 101;
-		} else {
-			protocol = 4;
-		}
+		const protocol = useCloudConnection ? 101 : 4;
 		const payload = await this.adapter.message.buildPayload(duid, protocol, messageID, method, params, secure, photo);
 		const roborockMessage = await this.adapter.message.buildRoborockMessage(duid, protocol, timestamp, payload);
-
-		const deviceOnline = await this.adapter.onlineChecker(duid);
-		const mqttConnectionState = this.adapter.rr_mqtt_connector.isConnected();
-		const localConnectionState = this.adapter.localConnector.isConnected(duid);
 
 		if (roborockMessage) {
 			return new Promise((resolve, reject) => {
@@ -43,12 +44,12 @@ class messageQueueHandler {
 					this.adapter.log.debug(`Device ${duid} offline. Not sending for method ${method} request!`);
 					reject();
 				}
-				else if (!mqttConnectionState && remoteConnection) {
+				else if (!mqttConnectionState && useCloudConnection) {
 					this.adapter.pendingRequests.delete(messageID);
 					this.adapter.log.debug(`Cloud connection not available. Not sending for method ${method} request!`);
 					reject();
 				}
-				else if (!localConnectionState && !remoteConnection) {
+				else if (!localConnectionState && !useCloudConnection) {
 					this.adapter.pendingRequests.delete(messageID);
 					this.adapter.log.debug(`Adapter not connect locally to robot ${duid}. Not sending for method ${method} request!`);
 					reject();
@@ -57,7 +58,7 @@ class messageQueueHandler {
 					const timeout = this.adapter.setTimeout(() => {
 						this.adapter.pendingRequests.delete(messageID);
 						this.adapter.localConnector.clearChunkBuffer(duid);
-						if (remoteConnection) {
+						if (useCloudConnection) {
 							reject(new Error(`Cloud request with id ${messageID} with method ${method} timed out after 10 seconds. MQTT connection state: ${mqttConnectionState}`));
 						} else {
 							reject(new Error(`Local request with id ${messageID} with method ${method} timed out after 10 seconds Local connect state: ${localConnectionState}`));
@@ -67,7 +68,7 @@ class messageQueueHandler {
 					// Store request with resolve and reject functions
 					this.adapter.pendingRequests.set(messageID, { resolve, reject, timeout });
 
-					if (remoteConnection || secure || photo || method == "get_network_info") {
+					if (useCloudConnection) {
 						this.adapter.rr_mqtt_connector.sendMessage(duid, roborockMessage);
 						this.adapter.log.debug(`Sent payload for ${duid} with ${payload} using cloud connection`);
 						//client.publish(`rr/m/i/${rriot.u}/${mqttUser}/${duid}`, roborockMessage, { qos: 1 });
