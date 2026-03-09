@@ -771,7 +771,7 @@ class Roborock {
         continue;
       }
 
-      const robotModel = this.getProductAttribute(duid);
+      const robotModel = this.getProductAttribute(duid, "model");
 
       this.vacuums[duid].mainUpdateInterval = () =>
         this.setInterval(
@@ -1170,6 +1170,7 @@ class Roborock {
         case "roborock.vacuum.a10":
         case "roborock.vacuum.a40":
         case "roborock.vacuum.a140":
+        case "roborock.vacuum.a147":
         case "roborock.vacuum.a95":
         case "roborock.vacuum.a159":
         case "roborock.vacuum.ss07":

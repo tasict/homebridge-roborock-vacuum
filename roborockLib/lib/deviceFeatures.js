@@ -595,6 +595,7 @@ class deviceFeatures {
 				"roborock.vacuum.a117", // Qrevo Master
 				"roborock.vacuum.a21", // Qrevo Slim
 				"roborock.vacuum.a144", // Saros 10R
+				"roborock.vacuum.a147", // Saros 10
 				"roborock.vacuum.a140",
 				"roborock.vacuum.a95",
 				"roborock.vacuum.a159",
@@ -619,6 +620,7 @@ class deviceFeatures {
 				"roborock.vacuum.a87", // Qrevo MaxV
 				"roborock.vacuum.a101", // Q Revo Pro
 				"roborock.vacuum.a144", // Saros 10R
+				"roborock.vacuum.a147", // Saros 10
 				"roborock.vacuum.a140",
 				"roborock.vacuum.a95",
 				"roborock.vacuum.a159",
@@ -649,6 +651,7 @@ class deviceFeatures {
 				"roborock.vacuum.a117", // Qrevo Master
 				"roborock.vacuum.a21", // Qrevo Slim
 				"roborock.vacuum.a144", // Saros 10R
+				"roborock.vacuum.a147", // Saros 10
 				"roborock.vacuum.a140",
 				"roborock.vacuum.a95",
 				"roborock.vacuum.a159",
@@ -677,6 +680,7 @@ class deviceFeatures {
 				"roborock.vacuum.a135", // Qrevo Curv
 				"roborock.vacuum.a117", // Qrevo Master
 				"roborock.vacuum.a144", // Saros 10R
+				"roborock.vacuum.a147", // Saros 10
 				"roborock.vacuum.a140",
 				"roborock.vacuum.a95",
 				"roborock.vacuum.a159",
@@ -980,6 +984,23 @@ class deviceFeatures {
 					"set_kct",
 					"set_switch_status",
 					"set_last_clean_t",
+				],
+				// Saros 10
+				"roborock.vacuum.a147": [
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_common_status",
+					"set_dss",
+					"set_rss",
+					"set_kct",
+					"set_in_warmup",
+					"set_last_clean_t",
+					"set_map_flag",
+					"set_back_type",
+					"set_charge_status",
+					"set_clean_percent",
+					"set_cleaned_area",
+					"set_switch_status",
 				],
 				"roborock.vacuum.a140": [
 					"setCleaningRecordsString",
