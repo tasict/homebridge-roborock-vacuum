@@ -732,6 +732,8 @@ class deviceFeatures {
 					"set_clean_percent",
 					"set_switch_status",
 				],
+				// Q5+
+				"roborock.vacuum.a34": ["setCleaningRecordsString", "setConsumablesInt", "set_map_flag", "set_charge_status"],
 				// Q7 Max
 				"roborock.vacuum.a38": ["setCleaningRecordsString", "setConsumablesInt", "set_map_flag", "set_charge_status"],
 				// Q7

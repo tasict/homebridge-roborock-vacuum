@@ -25,6 +25,7 @@ Roborock S6 Pure
 Roborock S6 MaxV
 Roborock S7
 Roborock S7 MaxV (Ultra)
+Roborock Q5+
 Roborock Q7
 Roborock Q7 Max
 Roborock S7 Pro Ultra
