@@ -71,6 +71,11 @@ class Roborock {
 
     this.pendingRequests = new Map();
 
+    // Throttle repeated transient errors (timeouts/retries) so the log
+    // is not flooded when a device keeps failing the same request.
+    this.transientErrorLog = new Map();
+    this.transientErrorLogInterval = 10 * 60 * 1000; // 10 min
+
     this.localDevices = {};
     this.remoteDevices = new Set();
 
@@ -1804,21 +1809,45 @@ class Roborock {
   }
 
   async catchError(error, attribute, duid, model) {
-    if (error) {
-      if (
-        error.toString().includes("retry") ||
-        error.toString().includes("locating") ||
-        error.toString().includes("timed out after 10 seconds")
-      ) {
-        this.log.warn(
-          `Failed to execute ${attribute} on robot ${duid} (${model || "unknown model"}): ${error}`
-        );
-      } else {
-        this.log.error(
-          `Failed to execute ${attribute} on robot ${duid} (${model || "unknown model"}): ${error.stack || error}`
-        );
-      }
+    if (!error) {
+      return;
     }
+
+    const errorText = error.toString();
+    const isTransient =
+      errorText.includes("retry") ||
+      errorText.includes("locating") ||
+      errorText.includes("timed out after 10 seconds");
+
+    if (isTransient) {
+      this.logTransientError(error, attribute, duid, model);
+    } else {
+      this.log.error(
+        `Failed to execute ${attribute} on robot ${duid} (${model || "unknown model"}): ${error.stack || error}`
+      );
+    }
+  }
+
+  logTransientError(error, attribute, duid, model) {
+    const key = `${duid}:${attribute}`;
+    const now = Date.now();
+    const entry = this.transientErrorLog.get(key);
+
+    if (entry && now - entry.lastLogged < this.transientErrorLogInterval) {
+      entry.suppressedCount++;
+      return;
+    }
+
+    const suppressedNote =
+      entry && entry.suppressedCount > 0
+        ? ` (suppressed ${entry.suppressedCount} identical message(s) in the last ${Math.round(this.transientErrorLogInterval / 60000)} min)`
+        : "";
+
+    this.log.warn(
+      `Failed to execute ${attribute} on robot ${duid} (${model || "unknown model"}): ${error}${suppressedNote}`
+    );
+
+    this.transientErrorLog.set(key, { lastLogged: now, suppressedCount: 0 });
   }
 
   async app_start(duid) {
