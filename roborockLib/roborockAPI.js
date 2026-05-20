@@ -455,6 +455,9 @@ class Roborock {
           this.devices = this.devices.filter(
             (device) => !ignoredSet.has(device.sn)
           );
+          this.receivedDevices = (homedataResult.receivedDevices || []).filter(
+            (device) => !ignoredSet.has(device.sn)
+          );
 
           const allManagedDevices = (homedataResult.devices || []).concat(
             homedataResult.receivedDevices || []
@@ -1008,11 +1011,21 @@ class Roborock {
   }
 
   getProductAttribute(duid, attribute) {
-    const products = this.products;
-    const productID = this.devices.find(
-      (device) => device.duid == duid
-    ).productId;
-    const product = products.find((product) => product.id == productID);
+    // Owned devices live in this.devices; shared devices in this.receivedDevices.
+    const device =
+      this.devices.find((device) => device.duid == duid) ||
+      (this.receivedDevices || []).find((device) => device.duid == duid);
+
+    if (!device) {
+      this.log.warn(
+        `getProductAttribute: no device found for duid ${duid}, returning null for "${attribute}".`
+      );
+      return null;
+    }
+
+    const product = (this.products || []).find(
+      (product) => product.id == device.productId
+    );
 
     return product ? product[attribute] : null;
   }
