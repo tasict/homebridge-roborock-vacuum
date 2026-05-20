@@ -1069,19 +1069,38 @@ class deviceFeatures {
 					"set_switch_status",
 				],
 
+				// Applied to any model without an explicit entry above. Mirrors the
+				// action set shared by current-generation models (a140/a147/a95/a159/ss07)
+				// so new models work without a code change. Bitfield-driven flags in
+				// getFeatureList() still refine capabilities per device on top of this.
+				default: [
+					"setCleaningRecordsString",
+					"setConsumablesInt",
+					"set_common_status",
+					"set_dss",
+					"set_rss",
+					"set_kct",
+					"set_in_warmup",
+					"set_last_clean_t",
+					"set_map_flag",
+					"set_back_type",
+					"set_charge_status",
+					"set_clean_percent",
+					"set_cleaned_area",
+					"set_switch_status",
+				],
 			};
 
 			// process modelConfig
 			const configActions = modelConfig[robotModel];
-			if (configActions) {
-				for (const actionName of configActions) {
-					const action = actions[actionName];
-					if (action) {
-						await action(this);
-					}
+			if (!configActions) {
+				this.adapter.log.info(`Model ${robotModel} has no explicit feature mapping; applying the default feature set.`);
+			}
+			for (const actionName of configActions || modelConfig.default) {
+				const action = actions[actionName];
+				if (action) {
+					await action(this);
 				}
-			} else {
-				this.adapter.catchError(`This robot ${robotModel} is not fully supported just yet. Contact the dev to get this robot fully supported!`);
 			}
 
 			this.adapter.createBaseRobotObjects(this.duid);
