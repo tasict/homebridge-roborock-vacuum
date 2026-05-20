@@ -76,6 +76,14 @@ class Roborock {
     this.transientErrorLog = new Map();
     this.transientErrorLogInterval = 10 * 60 * 1000; // 10 min
 
+    // Response-driven polling: a device that never answers a given method is
+    // treated as not supporting it, so optional polls back off instead of
+    // timing out every cycle. Keyed by `${duid}:${method}`.
+    this.methodTimeoutStreak = new Map();
+    this.methodPollBackoff = new Map();
+    this.methodBackoffThreshold = 3; // consecutive timeouts before backing off
+    this.methodBackoffInterval = 30 * 60 * 1000; // 30 min before a retry
+
     this.localDevices = {};
     this.remoteDevices = new Set();
 
@@ -1188,6 +1196,19 @@ class Roborock {
 
       await this.checkForNewFirmware(duid);
 
+      // Optional, model-dependent polls. A device that never answers one of
+      // these (e.g. a newer-protocol model that lacks the V1 method) backs off
+      // instead of timing out every cycle. See recordMethodTimeout/backoff.
+      const pollOptional = async (method) => {
+        if (this.shouldPollMethod(duid, method)) {
+          await vacuum.getParameter(duid, method);
+        } else {
+          this.log.debug(
+            `Skipping ${method} for ${duid}; backing off after repeated timeouts.`
+          );
+        }
+      };
+
       switch (robotModel) {
         case "roborock.vacuum.s4":
         case "roborock.vacuum.s5":
@@ -1202,18 +1223,18 @@ class Roborock {
           //do nothing
           break;
         case "roborock.vacuum.s6":
-          await vacuum.getParameter(duid, "get_carpet_mode");
+          await pollOptional("get_carpet_mode");
           break;
         case "roborock.vacuum.a27":
-          await vacuum.getParameter(duid, "get_dust_collection_switch_status");
-          await vacuum.getParameter(duid, "get_wash_towel_mode");
-          await vacuum.getParameter(duid, "get_smart_wash_params");
-          await vacuum.getParameter(duid, "app_get_dryer_setting");
+          await pollOptional("get_dust_collection_switch_status");
+          await pollOptional("get_wash_towel_mode");
+          await pollOptional("get_smart_wash_params");
+          await pollOptional("app_get_dryer_setting");
           break;
         default:
-          await vacuum.getParameter(duid, "get_carpet_mode");
-          await vacuum.getParameter(duid, "get_carpet_clean_mode");
-          await vacuum.getParameter(duid, "get_water_box_custom_mode");
+          await pollOptional("get_carpet_mode");
+          await pollOptional("get_carpet_clean_mode");
+          await pollOptional("get_water_box_custom_mode");
       }
     } else {
       this.log.warn(
@@ -1224,8 +1245,12 @@ class Roborock {
 
   async updateDataExtraData(duid, vacuum) {
     try {
-      await vacuum.getParameter(duid, "get_fw_features");
-      await vacuum.getParameter(duid, "get_multi_maps_list");
+      if (this.shouldPollMethod(duid, "get_fw_features")) {
+        await vacuum.getParameter(duid, "get_fw_features");
+      }
+      if (this.shouldPollMethod(duid, "get_multi_maps_list")) {
+        await vacuum.getParameter(duid, "get_multi_maps_list");
+      }
     } catch (error) {
       this.log.error(
         `Failed to get extra data for ${vacuum}: ${error.message}`
@@ -1856,6 +1881,46 @@ class Roborock {
     );
 
     this.transientErrorLog.set(key, { lastLogged: now, suppressedCount: 0 });
+  }
+
+  // Called by the message queue when a request times out. After a few
+  // consecutive timeouts for the same method we assume the device does not
+  // support it and pause polling that method for a cooldown window.
+  recordMethodTimeout(duid, method) {
+    if (!duid || !method) {
+      return;
+    }
+
+    const key = `${duid}:${method}`;
+    const streak = (this.methodTimeoutStreak.get(key) || 0) + 1;
+
+    if (streak >= this.methodBackoffThreshold) {
+      this.methodPollBackoff.set(key, Date.now() + this.methodBackoffInterval);
+      this.methodTimeoutStreak.set(key, 0);
+      this.log.info(
+        `Pausing polling of ${method} for ${duid} after ${streak} consecutive timeouts; will retry in ${Math.round(this.methodBackoffInterval / 60000)} min.`
+      );
+    } else {
+      this.methodTimeoutStreak.set(key, streak);
+    }
+  }
+
+  // Called by the message queue when a request succeeds. Clears any timeout
+  // streak/backoff so a method that starts responding is polled normally again.
+  recordMethodSuccess(duid, method) {
+    if (!duid || !method) {
+      return;
+    }
+
+    const key = `${duid}:${method}`;
+    this.methodTimeoutStreak.delete(key);
+    this.methodPollBackoff.delete(key);
+  }
+
+  // Whether an optional method should be polled now (false while backing off).
+  shouldPollMethod(duid, method) {
+    const until = this.methodPollBackoff.get(`${duid}:${method}`);
+    return !until || Date.now() >= until;
   }
 
   async app_start(duid) {

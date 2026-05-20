@@ -58,6 +58,9 @@ class messageQueueHandler {
 					const timeout = this.adapter.setTimeout(() => {
 						this.adapter.pendingRequests.delete(messageID);
 						this.adapter.localConnector.clearChunkBuffer(duid);
+						if (typeof this.adapter.recordMethodTimeout === "function") {
+							this.adapter.recordMethodTimeout(duid, method);
+						}
 						if (useCloudConnection) {
 							reject(new Error(`Cloud request with id ${messageID} with method ${method} timed out after 10 seconds. MQTT connection state: ${mqttConnectionState}`));
 						} else {
@@ -65,8 +68,16 @@ class messageQueueHandler {
 						}
 					}, requestTimeout);
 
+					// Track a successful response so a recovering method resumes normal polling.
+					const trackedResolve = (value) => {
+						if (typeof this.adapter.recordMethodSuccess === "function") {
+							this.adapter.recordMethodSuccess(duid, method);
+						}
+						resolve(value);
+					};
+
 					// Store request with resolve and reject functions
-					this.adapter.pendingRequests.set(messageID, { resolve, reject, timeout });
+					this.adapter.pendingRequests.set(messageID, { resolve: trackedResolve, reject, timeout });
 
 					if (useCloudConnection) {
 						this.adapter.rr_mqtt_connector.sendMessage(duid, roborockMessage);
