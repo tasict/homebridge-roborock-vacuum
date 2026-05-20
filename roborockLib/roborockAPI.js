@@ -1196,19 +1196,6 @@ class Roborock {
 
       await this.checkForNewFirmware(duid);
 
-      // Optional, model-dependent polls. A device that never answers one of
-      // these (e.g. a newer-protocol model that lacks the V1 method) backs off
-      // instead of timing out every cycle. See recordMethodTimeout/backoff.
-      const pollOptional = async (method) => {
-        if (this.shouldPollMethod(duid, method)) {
-          await vacuum.getParameter(duid, method);
-        } else {
-          this.log.debug(
-            `Skipping ${method} for ${duid}; backing off after repeated timeouts.`
-          );
-        }
-      };
-
       switch (robotModel) {
         case "roborock.vacuum.s4":
         case "roborock.vacuum.s5":
@@ -1223,18 +1210,22 @@ class Roborock {
           //do nothing
           break;
         case "roborock.vacuum.s6":
-          await pollOptional("get_carpet_mode");
+          await this.pollOptional(duid, vacuum, "get_carpet_mode");
           break;
         case "roborock.vacuum.a27":
-          await pollOptional("get_dust_collection_switch_status");
-          await pollOptional("get_wash_towel_mode");
-          await pollOptional("get_smart_wash_params");
-          await pollOptional("app_get_dryer_setting");
+          await this.pollOptional(
+            duid,
+            vacuum,
+            "get_dust_collection_switch_status"
+          );
+          await this.pollOptional(duid, vacuum, "get_wash_towel_mode");
+          await this.pollOptional(duid, vacuum, "get_smart_wash_params");
+          await this.pollOptional(duid, vacuum, "app_get_dryer_setting");
           break;
         default:
-          await pollOptional("get_carpet_mode");
-          await pollOptional("get_carpet_clean_mode");
-          await pollOptional("get_water_box_custom_mode");
+          await this.pollOptional(duid, vacuum, "get_carpet_mode");
+          await this.pollOptional(duid, vacuum, "get_carpet_clean_mode");
+          await this.pollOptional(duid, vacuum, "get_water_box_custom_mode");
       }
     } else {
       this.log.warn(
@@ -1245,12 +1236,8 @@ class Roborock {
 
   async updateDataExtraData(duid, vacuum) {
     try {
-      if (this.shouldPollMethod(duid, "get_fw_features")) {
-        await vacuum.getParameter(duid, "get_fw_features");
-      }
-      if (this.shouldPollMethod(duid, "get_multi_maps_list")) {
-        await vacuum.getParameter(duid, "get_multi_maps_list");
-      }
+      await this.pollOptional(duid, vacuum, "get_fw_features");
+      await this.pollOptional(duid, vacuum, "get_multi_maps_list");
     } catch (error) {
       this.log.error(
         `Failed to get extra data for ${vacuum}: ${error.message}`
@@ -1921,6 +1908,19 @@ class Roborock {
   shouldPollMethod(duid, method) {
     const until = this.methodPollBackoff.get(`${duid}:${method}`);
     return !until || Date.now() >= until;
+  }
+
+  // Poll a method that a device may not support. A device that never answers
+  // (e.g. a newer-protocol model lacking the V1 method) backs off instead of
+  // timing out every cycle. See recordMethodTimeout/backoff.
+  async pollOptional(duid, vacuum, method) {
+    if (this.shouldPollMethod(duid, method)) {
+      await vacuum.getParameter(duid, method);
+    } else {
+      this.log.debug(
+        `Skipping ${method} for ${duid}; backing off after repeated timeouts.`
+      );
+    }
   }
 
   async app_start(duid) {
