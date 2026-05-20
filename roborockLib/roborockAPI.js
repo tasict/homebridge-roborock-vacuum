@@ -467,17 +467,25 @@ class Roborock {
           const allManagedDevices = (homedataResult.devices || []).concat(
             homedataResult.receivedDevices || []
           );
-          const localKeyDevices = allManagedDevices.filter((device) => {
-            if (!device || !device.duid || !device.localKey) {
-              return false;
+          const localKeyDevices = [];
+          for (const device of allManagedDevices) {
+            if (!device || !device.duid) {
+              continue;
             }
 
             if (device.sn && ignoredSet.has(device.sn)) {
-              return false;
+              continue;
             }
 
-            return true;
-          });
+            if (!device.localKey) {
+              this.log.warn(
+                `Device ${device.duid} (product ${device.productId || "unknown"}) has no localKey in home data and cannot be controlled. Fields returned by the API: ${Object.keys(device).join(", ")}`
+              );
+              continue;
+            }
+
+            localKeyDevices.push(device);
+          }
 
           this.localKeys = new Map(
             localKeyDevices.map((device) => [device.duid, device.localKey])
