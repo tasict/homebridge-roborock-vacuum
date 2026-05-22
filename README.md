@@ -14,6 +14,7 @@ This plugin is inspired by and adapted from the [ioBroker.roborock](https://gith
 
 - **Automatic Device Detection**: No need to manually find or enter your vacuum's device ID.
 - **Start/Stop Cleaning**: Begin or end cleaning sessions.
+- **Device Exclusion**: Skip selected Roborock device IDs so shared or remote vacuums stay out of HomeKit.
 
 ## The supported robots are:
 
@@ -43,7 +44,6 @@ Roborock (roborock.vacuum.a95)
 Roborock (roborock.vacuum.a159)
 Roborock (roborock.vacuum.ss07)
 
-
 ## Requirements
 
 Before installing, ensure you have:
@@ -58,9 +58,17 @@ Before installing, ensure you have:
 Follow these steps to install the plugin:
 
 1. **Install Homebridge** (if not already installed):
+
    - Refer to the official [Homebridge installation guide](https://github.com/homebridge/homebridge#installation).
 
 2. **Install the Plugin**:
    - Open a terminal and run:
      ```bash
      npm install -g homebridge-roborock-vacuum
+     ```
+
+## Configuration
+
+Use the Homebridge UI settings page to sign in and configure the plugin. To exclude vacuums from HomeKit, add their Roborock device IDs to **Skipped Device IDs**. Multiple IDs can be entered one per line or separated by commas.
+
+When Homebridge restarts, matching devices will be skipped during discovery. If a skipped device already exists in HomeKit as a cached accessory, the plugin will remove it from Homebridge.

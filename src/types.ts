@@ -1,4 +1,4 @@
-import { PlatformConfig } from 'homebridge';
+import { PlatformConfig } from "homebridge";
 
 export interface RoborockPlatformConfig extends PlatformConfig {
   email: string;
@@ -6,4 +6,5 @@ export interface RoborockPlatformConfig extends PlatformConfig {
   debugMode: boolean;
   baseURL?: string;
   encryptedToken?: string;
+  skipDevices?: string | string[];
 }

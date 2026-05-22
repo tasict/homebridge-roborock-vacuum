@@ -1,48 +1,47 @@
 {
-    "pluginAlias": "RoborockVacuumPlatform",
-    "pluginType": "platform",
-    "singular": true,
-    "customUi": true,
-    "customUiPath": "./homebridge-ui",
-    "schema": {
-      "type": "object",
-      "properties": {
-        "email": {
-          "title": "Email",
-          "type": "string",
-          "format": "email",
-          "description": "Roborock account email"
-        },
-        "password": {
-          "title": "Password",
-          "type": "string",
-          "placeholder": "Password",
-          "description": "Roborock account password"
-        },
-        "encryptedToken": {
-          "title": "Encrypted Token",
-          "type": "string",
-          "description": "Encrypted Roborock session data (managed by the UI)",
-          "readOnly": true
-        },
-        "skipDevices": {
-          "title": "Skip Devices",
-          "type": "string",
-          "description": "Comma-separated device IDs to skip"
-        },
-        "baseURL": {
-          "type": "string",
-          "default": "https://usiot.roborock.com",
-          "description": "Roborock API endpoint: https://usiot.roborock.com (US), https://euiot.roborock.com (EU), https://cniot.roborock.com (CN), https://api.roborock.com (Asia)"
-        }
-        ,
-        "debugMode": {
-          "title": "Debug Mode",
-          "description": "When enabled, debug messages will be written to the log.",
-          "type": "boolean",
-          "default": false
-        }
+  "pluginAlias": "RoborockVacuumPlatform",
+  "pluginType": "platform",
+  "singular": true,
+  "customUi": true,
+  "customUiPath": "./homebridge-ui",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "email": {
+        "title": "Email",
+        "type": "string",
+        "format": "email",
+        "description": "Roborock account email"
       },
-      "required": ["email"]
-    }
+      "password": {
+        "title": "Password",
+        "type": "string",
+        "placeholder": "Password",
+        "description": "Roborock account password"
+      },
+      "encryptedToken": {
+        "title": "Encrypted Token",
+        "type": "string",
+        "description": "Encrypted Roborock session data (managed by the UI)",
+        "readOnly": true
+      },
+      "skipDevices": {
+        "title": "Skipped Device IDs",
+        "type": "string",
+        "description": "Roborock device IDs to exclude from HomeKit. Enter multiple IDs separated by commas or new lines."
+      },
+      "baseURL": {
+        "type": "string",
+        "default": "https://usiot.roborock.com",
+        "description": "Roborock API endpoint: https://usiot.roborock.com (US), https://euiot.roborock.com (EU), https://cniot.roborock.com (CN), https://api.roborock.com (Asia)"
+      },
+      "debugMode": {
+        "title": "Debug Mode",
+        "description": "When enabled, debug messages will be written to the log.",
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "required": ["email"]
   }
+}

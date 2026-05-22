@@ -81,6 +81,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   public readonly log: RoborockPlatformLogger;
 
   public platformConfig: RoborockPlatformConfig;
+  private readonly skippedDeviceIds: Set<string>;
 
   /**
    * This constructor is where you should parse the user config
@@ -96,6 +97,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     private readonly api: API
   ) {
     this.platformConfig = config as RoborockPlatformConfig;
+    this.skippedDeviceIds = new Set(
+      this.parseDeviceIds(this.platformConfig.skipDevices)
+    );
 
     // Initialise logging utility
     this.log = new RoborockPlatformLogger(
@@ -189,6 +193,17 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   configureAccessory(accessory: PlatformAccessory<String>) {
     this.log.info(`Loading accessory '${accessory.displayName}' from cache.`);
 
+    if (this.isSkippedDeviceId(accessory.context)) {
+      this.log.info(
+        `Removing accessory '${accessory.displayName}' (${accessory.context}) ` +
+          "because it is configured to be skipped."
+      );
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
+        accessory,
+      ]);
+      return;
+    }
+
     // Store restored accessory in the cached accessories list
     // remove duplicates accessories
 
@@ -216,6 +231,26 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     return model.startsWith("roborock.vacuum.");
   }
 
+  parseDeviceIds(value: RoborockPlatformConfig["skipDevices"]): string[] {
+    if (!value) {
+      return [];
+    }
+
+    const entries = Array.isArray(value) ? value : value.split(/[\n,]+/);
+
+    return entries
+      .map((entry) => `${entry}`.trim())
+      .filter((entry) => entry.length > 0);
+  }
+
+  isSkippedDeviceId(deviceId: unknown): boolean {
+    if (typeof deviceId !== "string" && !(deviceId instanceof String)) {
+      return false;
+    }
+
+    return this.skippedDeviceIds.has(`${deviceId}`.trim());
+  }
+
   /**
    * Fetches all of the user's devices from Roborock App and sets up handlers.
    *
@@ -233,6 +268,14 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
           var duid = device.duid;
           var name = device.name;
           var model = self.roborockAPI.getProductAttribute(duid, "model");
+
+          if (self.isSkippedDeviceId(duid)) {
+            self.log.info(
+              `Skipping device '${name}' (${duid}) because it is configured to be skipped.`
+            );
+
+            return;
+          }
 
           if (!self.isSupportedDevice(model)) {
             self.log.info(`Device '${name}' (${duid}) is not supported.`);
@@ -290,6 +333,18 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       // cached devices that do not exist on the Roborock App account anymore.
       for (const cachedAccessory of this.accessories) {
         if (cachedAccessory.context) {
+          if (this.isSkippedDeviceId(cachedAccessory.context)) {
+            this.log.info(
+              `Removing accessory '${cachedAccessory.displayName}' (${cachedAccessory.context}) ` +
+                "because it is configured to be skipped."
+            );
+
+            this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
+              cachedAccessory,
+            ]);
+            continue;
+          }
+
           const vacuum = self.roborockAPI.getVacuumDeviceData(
             cachedAccessory.context
           );

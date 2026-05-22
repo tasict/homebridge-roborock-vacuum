@@ -3,7 +3,9 @@
 <main class="container">
   <header>
     <h1>Roborock Vacuum</h1>
-    <p class="subtitle">Manage login and two-factor authentication for your Roborock account.</p>
+    <p class="subtitle">
+      Manage login and two-factor authentication for your Roborock account.
+    </p>
   </header>
 
   <section class="card">
@@ -20,16 +22,32 @@
     <label>
       Region
       <select id="base-url">
-        <option value="https://usiot.roborock.com">US (usiot.roborock.com)</option>
-        <option value="https://euiot.roborock.com">EU (euiot.roborock.com)</option>
-        <option value="https://cniot.roborock.com">CN (cniot.roborock.com)</option>
-        <option value="https://api.roborock.com">Asia (api.roborock.com)</option>
+        <option value="https://usiot.roborock.com">
+          US (usiot.roborock.com)
+        </option>
+        <option value="https://euiot.roborock.com">
+          EU (euiot.roborock.com)
+        </option>
+        <option value="https://cniot.roborock.com">
+          CN (cniot.roborock.com)
+        </option>
+        <option value="https://api.roborock.com">
+          Asia (api.roborock.com)
+        </option>
       </select>
     </label>
     <label>
-      Skip Devices
-      <input id="skip-devices" type="text" placeholder="Comma-separated device IDs" />
+      Skipped Device IDs
+      <textarea
+        id="skip-devices"
+        rows="4"
+        placeholder="One device ID per line, or comma-separated"
+      ></textarea>
     </label>
+    <p class="help">
+      Matching devices will not be added to HomeKit and existing cached
+      accessories will be removed on restart.
+    </p>
     <label class="checkbox">
       <input id="debug-mode" type="checkbox" />
       Enable debug logging
@@ -42,7 +60,10 @@
 
   <section class="card" id="two-factor-section">
     <h2>Two-Factor Authentication</h2>
-    <p class="help">If your account requires 2FA, send a verification email and enter the code below.</p>
+    <p class="help">
+      If your account requires 2FA, send a verification email and enter the code
+      below.
+    </p>
     <label id="code-row">
       Verification Code
       <input id="two-factor-code" type="text" placeholder="6-digit code" />

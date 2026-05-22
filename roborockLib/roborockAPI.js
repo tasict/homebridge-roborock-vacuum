@@ -325,7 +325,7 @@ class Roborock {
     }
     if (typeof value === "string") {
       return value
-        .split(",")
+        .split(/[\n,]+/)
         .map((entry) => entry.trim())
         .filter((entry) => entry);
     }
@@ -458,7 +458,7 @@ class Roborock {
             ack: true,
           });
 
-          // skip devices that sn in ignoredDevices or skipDevices
+          // skip devices whose serial number or device ID is in ignoredDevices or skipDevices
           const ignoredDevices = this.config.ignoredDevices || [];
           const skipDevices = this.parseSkipDevices(this.config.skipDevices);
           const ignoredSet = new Set([...ignoredDevices, ...skipDevices]);
@@ -466,10 +466,12 @@ class Roborock {
           this.products = homedataResult.products;
           this.devices = homedataResult.devices || [];
           this.devices = this.devices.filter(
-            (device) => !ignoredSet.has(device.sn)
+            (device) =>
+              !ignoredSet.has(device.sn) && !ignoredSet.has(device.duid)
           );
           this.receivedDevices = (homedataResult.receivedDevices || []).filter(
-            (device) => !ignoredSet.has(device.sn)
+            (device) =>
+              !ignoredSet.has(device.sn) && !ignoredSet.has(device.duid)
           );
 
           const allManagedDevices = (homedataResult.devices || []).concat(
@@ -481,7 +483,10 @@ class Roborock {
               continue;
             }
 
-            if (device.sn && ignoredSet.has(device.sn)) {
+            if (
+              (device.sn && ignoredSet.has(device.sn)) ||
+              (device.duid && ignoredSet.has(device.duid))
+            ) {
               continue;
             }
 
