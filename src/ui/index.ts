@@ -1,36 +1,9 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { createRequire } from "module";
-import { pathToFileURL } from "url";
 import { encryptSession } from "../crypto";
 
-const localRequire = createRequire(__filename);
-const nodeModule = localRequire("module") as { _initPaths(): void };
-
-function addHomebridgeModulePath(): void {
-  const homebridgeNodeModules = path.join(process.cwd(), "node_modules");
-  const nodePathEntries = process.env.NODE_PATH
-    ? process.env.NODE_PATH.split(path.delimiter)
-    : [];
-
-  if (!nodePathEntries.includes(homebridgeNodeModules)) {
-    process.env.NODE_PATH = [homebridgeNodeModules, ...nodePathEntries]
-      .filter(Boolean)
-      .join(path.delimiter);
-    nodeModule._initPaths();
-  }
-}
-
-function resolveInstalledModule(specifier: string): string {
-  return localRequire.resolve(specifier, {
-    paths: [process.cwd(), path.join(process.cwd(), "node_modules")],
-  });
-}
-
-addHomebridgeModulePath();
-
-const roborockAuth = localRequire("../../roborockLib/lib/roborockAuth");
+const roborockAuth = require("../../roborockLib/lib/roborockAuth");
 
 // Type definition for HomebridgePluginUiServer to maintain type safety
 interface IHomebridgePluginUiServer {
@@ -293,11 +266,8 @@ class RoborockUiServer {
 // Security note: This is safe because the module specifier is a hardcoded string literal, not user input.
 (async () => {
   const dynamicImport = new Function("specifier", "return import(specifier)");
-  const pluginUiUtilsPath = resolveInstalledModule(
-    "@homebridge/plugin-ui-utils"
-  );
   const { HomebridgePluginUiServer } = await dynamicImport(
-    pathToFileURL(pluginUiUtilsPath).href
+    "@homebridge/plugin-ui-utils"
   );
   new RoborockUiServer(HomebridgePluginUiServer);
 })();
