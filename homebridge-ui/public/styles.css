@@ -65,6 +65,19 @@ label {
   color: var(--muted);
 }
 
+.field {
+  margin-top: 16px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 select,
 input,
 textarea {
@@ -81,6 +94,23 @@ textarea {
 textarea {
   min-height: 110px;
   resize: vertical;
+}
+
+.skip-device-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.skip-device-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px;
+  align-items: center;
+}
+
+.skip-device-row input {
+  margin-top: 0;
 }
 
 input::placeholder,
@@ -135,6 +165,25 @@ button {
 button:hover {
   transform: translateY(-1px);
   box-shadow: 0 12px 24px rgba(56, 189, 248, 0.18);
+}
+
+.icon-button {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  line-height: 1;
+  background: var(--secondary);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.icon-button.remove {
+  color: #fca5a5;
 }
 
 .primary {

@@ -4,6 +4,7 @@ const elements = {
   passwordRow: document.getElementById("password-row"),
   baseUrl: document.getElementById("base-url"),
   skipDevices: document.getElementById("skip-devices"),
+  addSkipDevice: document.getElementById("add-skip-device"),
   debugMode: document.getElementById("debug-mode"),
   code: document.getElementById("two-factor-code"),
   login: document.getElementById("login"),
@@ -55,6 +56,7 @@ async function loadConfig() {
     (entry) => entry.platform === "RoborockVacuumPlatform"
   );
   if (!config) {
+    renderSkipDevices([]);
     return;
   }
 
@@ -64,9 +66,7 @@ async function loadConfig() {
   elements.baseUrl.value = normalizeBaseUrl(
     config.baseURL || "https://usiot.roborock.com"
   );
-  if (config.skipDevices) {
-    elements.skipDevices.value = parseDeviceIds(config.skipDevices).join("\n");
-  }
+  renderSkipDevices(config.skipDevices);
   elements.debugMode.checked = Boolean(config.debugMode);
 
   setLoggedInState(Boolean(config.encryptedToken));
@@ -85,7 +85,10 @@ function getBaseUrl() {
 }
 
 function getSkipDevices() {
-  return parseDeviceIds(elements.skipDevices.value).join(",");
+  return getSkipDeviceInputs()
+    .map((input) => input.value.trim())
+    .filter((entry) => entry)
+    .join(",");
 }
 
 function getDebugMode() {
@@ -103,6 +106,54 @@ function parseDeviceIds(value) {
 
   const entries = Array.isArray(value) ? value : String(value).split(/[\n,]+/);
   return entries.map((entry) => String(entry).trim()).filter((entry) => entry);
+}
+
+function getSkipDeviceInputs() {
+  return Array.from(elements.skipDevices.querySelectorAll("input"));
+}
+
+function renderSkipDevices(value) {
+  elements.skipDevices.textContent = "";
+
+  const deviceIds = parseDeviceIds(value);
+  if (deviceIds.length === 0) {
+    addSkipDeviceRow("", false);
+    return;
+  }
+
+  deviceIds.forEach((deviceId) => addSkipDeviceRow(deviceId, false));
+}
+
+function addSkipDeviceRow(value = "", shouldFocus = true) {
+  const row = document.createElement("div");
+  row.className = "skip-device-row";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Device ID";
+  input.setAttribute("aria-label", "Skipped device ID");
+  input.value = value;
+  input.addEventListener("change", saveCredentials);
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "icon-button remove";
+  remove.title = "Remove skipped device";
+  remove.setAttribute("aria-label", "Remove skipped device");
+  remove.textContent = "-";
+  remove.addEventListener("click", () => {
+    row.remove();
+    if (getSkipDeviceInputs().length === 0) {
+      addSkipDeviceRow();
+    }
+    saveCredentials();
+  });
+
+  row.append(input, remove);
+  elements.skipDevices.appendChild(row);
+  if (shouldFocus) {
+    input.focus();
+  }
 }
 
 async function saveCredentials() {
@@ -262,6 +313,7 @@ async function updatePluginConfig(patch) {
 }
 
 function init() {
+  renderSkipDevices([]);
   loadConfig().catch(() => {
     showToast("error", "Failed to load current config.");
   });
@@ -270,7 +322,9 @@ function init() {
   elements.verify2fa.addEventListener("click", verifyTwoFactorCode);
   elements.logout.addEventListener("click", logout);
   elements.baseUrl.addEventListener("change", saveCredentials);
-  elements.skipDevices.addEventListener("change", saveCredentials);
+  elements.addSkipDevice.addEventListener("click", () => {
+    addSkipDeviceRow();
+  });
   elements.debugMode.addEventListener("change", saveCredentials);
   elements.email.addEventListener("change", saveCredentials);
 }

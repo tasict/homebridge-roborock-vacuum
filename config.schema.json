@@ -28,7 +28,7 @@
       "skipDevices": {
         "title": "Skipped Device IDs",
         "type": "string",
-        "description": "Roborock device IDs to exclude from HomeKit. Enter multiple IDs separated by commas or new lines."
+        "description": "Roborock device IDs to exclude from HomeKit."
       },
       "baseURL": {
         "type": "string",

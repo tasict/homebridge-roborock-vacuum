@@ -18,6 +18,13 @@
   },
   "homepage": "https://github.com/tasict/homebridge-roborock-vacuum",
   "main": "dist/index.js",
+  "files": [
+    "CHANGELOG.md",
+    "config.schema.json",
+    "dist",
+    "homebridge-ui",
+    "roborockLib"
+  ],
   "engines": {
     "homebridge": "^1.6.0 || ^2.0.0-beta.0",
     "node": "^18.20.4 || ^20.15.1 || ^22 || ^24"
@@ -25,7 +32,6 @@
   "scripts": {
     "clean": "rimraf ./dist",
     "build": "rimraf ./dist && tsc",
-    "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "postpublish": "npm run clean",
     "lint": "prettier --check .",

@@ -69,6 +69,6 @@ Follow these steps to install the plugin:
 
 ## Configuration
 
-Use the Homebridge UI settings page to sign in and configure the plugin. To exclude vacuums from HomeKit, add their Roborock device IDs to **Skipped Device IDs**. Multiple IDs can be entered one per line or separated by commas.
+Use the Homebridge UI settings page to sign in and configure the plugin. To exclude vacuums from HomeKit, add their Roborock device IDs to **Skipped Device IDs**.
 
 When Homebridge restarts, matching devices will be skipped during discovery. If a skipped device already exists in HomeKit as a cached accessory, the plugin will remove it from Homebridge.

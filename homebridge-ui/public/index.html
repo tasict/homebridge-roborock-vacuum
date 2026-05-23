@@ -36,14 +36,21 @@
         </option>
       </select>
     </label>
-    <label>
-      Skipped Device IDs
-      <textarea
-        id="skip-devices"
-        rows="4"
-        placeholder="One device ID per line, or comma-separated"
-      ></textarea>
-    </label>
+    <div class="field">
+      <div class="field-header">
+        <span>Skipped Device IDs</span>
+        <button
+          id="add-skip-device"
+          class="icon-button"
+          type="button"
+          title="Add skipped device"
+          aria-label="Add skipped device"
+        >
+          +
+        </button>
+      </div>
+      <div id="skip-devices" class="skip-device-list"></div>
+    </div>
     <p class="help">
       Matching devices will not be added to HomeKit and existing cached
       accessories will be removed on restart.
