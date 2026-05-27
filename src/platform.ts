@@ -75,6 +75,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
 
   // Used to track restored cached accessories
   private readonly accessories: PlatformAccessory<String>[] = [];
+  private readonly cachedAccessoriesToRemove: PlatformAccessory<String>[] = [];
   private readonly vacuums: RoborockVacuumAccessory[] = [];
 
   public readonly roborockAPI: any;
@@ -149,6 +150,8 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   }
 
   async configurePlugin() {
+    this.removeSkippedCachedAccessories();
+    this.removeDeferredCachedAccessories();
     await this.loginAndDiscoverDevices();
   }
 
@@ -195,12 +198,10 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
 
     if (this.isSkippedDeviceId(accessory.context)) {
       this.log.info(
-        `Removing accessory '${accessory.displayName}' (${accessory.context}) ` +
-          "because it is configured to be skipped."
+        `Accessory '${accessory.displayName}' (${accessory.context}) is configured ` +
+          "to be skipped and will be removed after Homebridge finishes launching."
       );
-      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
-        accessory,
-      ]);
+      this.accessories.push(accessory);
       return;
     }
 
@@ -213,11 +214,11 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       );
       if (existingAccessory) {
         this.log.info(
-          `Removing duplicate accessory '${existingAccessory.displayName}' from cache.`
+          `Accessory '${accessory.displayName}' is a duplicate and will be ` +
+            "removed after Homebridge finishes launching."
         );
-        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
-          existingAccessory,
-        ]);
+        this.cachedAccessoriesToRemove.push(accessory);
+        return;
       }
     } catch (e) {
       this.log.error("Error loading accessory from cache: " + e);
@@ -249,6 +250,59 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     }
 
     return this.skippedDeviceIds.has(`${deviceId}`.trim());
+  }
+
+  private removeSkippedCachedAccessories(): void {
+    for (const cachedAccessory of [...this.accessories]) {
+      if (this.isSkippedDeviceId(cachedAccessory.context)) {
+        this.unregisterCachedAccessory(
+          cachedAccessory,
+          "because it is configured to be skipped"
+        );
+      }
+    }
+  }
+
+  private removeDeferredCachedAccessories(): void {
+    for (const cachedAccessory of [...this.cachedAccessoriesToRemove]) {
+      this.unregisterCachedAccessory(
+        cachedAccessory,
+        "because another cached accessory with the same UUID was already restored"
+      );
+    }
+  }
+
+  private unregisterCachedAccessory(
+    accessory: PlatformAccessory<String>,
+    reason: string
+  ): void {
+    this.log.info(
+      `Removing accessory '${accessory.displayName}' (${accessory.context}) ${reason}.`
+    );
+
+    try {
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
+        accessory,
+      ]);
+      this.removeTrackedAccessory(accessory);
+    } catch (error) {
+      this.log.error(
+        `Unable to remove accessory '${accessory.displayName}' (${accessory.context}): ${error}`
+      );
+      this.log.debug(error);
+    }
+  }
+
+  private removeTrackedAccessory(accessory: PlatformAccessory<String>): void {
+    const accessoryIndex = this.accessories.indexOf(accessory);
+    if (accessoryIndex !== -1) {
+      this.accessories.splice(accessoryIndex, 1);
+    }
+
+    const deferredIndex = this.cachedAccessoriesToRemove.indexOf(accessory);
+    if (deferredIndex !== -1) {
+      this.cachedAccessoriesToRemove.splice(deferredIndex, 1);
+    }
   }
 
   /**
@@ -331,17 +385,13 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
 
       // At this point, we set up all devices from Roborock App, but we did not unregister
       // cached devices that do not exist on the Roborock App account anymore.
-      for (const cachedAccessory of this.accessories) {
+      for (const cachedAccessory of [...this.accessories]) {
         if (cachedAccessory.context) {
           if (this.isSkippedDeviceId(cachedAccessory.context)) {
-            this.log.info(
-              `Removing accessory '${cachedAccessory.displayName}' (${cachedAccessory.context}) ` +
-                "because it is configured to be skipped."
-            );
-
-            this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
+            this.unregisterCachedAccessory(
               cachedAccessory,
-            ]);
+              "because it is configured to be skipped"
+            );
             continue;
           }
 
@@ -351,14 +401,10 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
 
           if (vacuum === undefined) {
             // This cached devices does not exist on the Roborock App account (anymore).
-            this.log.info(
-              `Removing accessory '${cachedAccessory.displayName}' (${cachedAccessory.context}) ` +
-                "because it does not exist on the Roborock account anymore."
-            );
-
-            this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
+            this.unregisterCachedAccessory(
               cachedAccessory,
-            ]);
+              "because it does not exist on the Roborock account anymore"
+            );
           }
         }
       }

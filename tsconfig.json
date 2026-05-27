@@ -23,6 +23,7 @@
   "exclude": [
     "node_modules",
     "**/*.spec.ts",
+    "**/*.test.ts",
     "roborockLib/data/UserData",
     "roborockLib/data/clientID",
     "roborockLib/userdata.json"
