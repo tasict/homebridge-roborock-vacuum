@@ -32,7 +32,7 @@
   "scripts": {
     "clean": "rimraf ./dist",
     "build": "rimraf ./dist && tsc",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm install --include=dev && npm run build",
     "postpublish": "npm run clean",
     "lint": "prettier --check .",
     "lint:fix": "prettier --write .",
