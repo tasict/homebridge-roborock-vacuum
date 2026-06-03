@@ -21,6 +21,14 @@ class messageQueueHandler {
 			this.adapter.log.info(`Local connection unavailable for ${duid}. Falling back to cloud connection for method ${method}.`);
 		}
 
+		// Some devices (e.g. the Qrevo / roborock.vacuum.a185) keep the local socket
+		// connected but never answer, so the disconnect-based fallback above never
+		// triggers. After repeated local timeouts, prefer cloud for a cooldown window.
+		if (!useCloudConnection && mqttConnectionState && typeof this.adapter.shouldPreferCloudLocally === "function" && this.adapter.shouldPreferCloudLocally(duid)) {
+			useCloudConnection = true;
+			this.adapter.log.info(`Local connection for ${duid} is unresponsive. Falling back to cloud connection for method ${method}.`);
+		}
+
 		if (!useCloudConnection && version == "L01") {
 			try {
 				await this.adapter.localConnector.ensureL01Handshake(duid);
@@ -64,6 +72,9 @@ class messageQueueHandler {
 						if (useCloudConnection) {
 							reject(new Error(`Cloud request with id ${messageID} with method ${method} timed out after 10 seconds. MQTT connection state: ${mqttConnectionState}`));
 						} else {
+							if (typeof this.adapter.recordLocalTimeout === "function") {
+								this.adapter.recordLocalTimeout(duid);
+							}
 							reject(new Error(`Local request with id ${messageID} with method ${method} timed out after 10 seconds Local connect state: ${localConnectionState}`));
 						}
 					}, requestTimeout);
@@ -72,6 +83,9 @@ class messageQueueHandler {
 					const trackedResolve = (value) => {
 						if (typeof this.adapter.recordMethodSuccess === "function") {
 							this.adapter.recordMethodSuccess(duid, method);
+						}
+						if (!useCloudConnection && typeof this.adapter.recordLocalSuccess === "function") {
+							this.adapter.recordLocalSuccess(duid);
 						}
 						resolve(value);
 					};

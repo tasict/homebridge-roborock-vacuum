@@ -84,6 +84,15 @@ class Roborock {
     this.methodBackoffThreshold = 3; // consecutive timeouts before backing off
     this.methodBackoffInterval = 30 * 60 * 1000; // 30 min before a retry
 
+    // Some newer models (e.g. the Qrevo / roborock.vacuum.a185) keep the local TCP
+    // connection open but never answer, so every local request times out. Track
+    // consecutive local timeouts per device and, once over the threshold, prefer the
+    // cloud path for a cooldown window (retrying local afterwards). Keyed by duid.
+    this.localTimeoutStreak = new Map();
+    this.localCloudPreference = new Map();
+    this.localFailoverThreshold = 3; // consecutive local timeouts before preferring cloud
+    this.localFailoverInterval = 5 * 60 * 1000; // 5 min preferring cloud before retrying local
+
     this.localDevices = {};
     this.remoteDevices = new Set();
 
@@ -1913,6 +1922,45 @@ class Roborock {
   shouldPollMethod(duid, method) {
     const until = this.methodPollBackoff.get(`${duid}:${method}`);
     return !until || Date.now() >= until;
+  }
+
+  // Called by the message queue when a LOCAL request times out. After a few
+  // consecutive local timeouts we treat the device's local connection as
+  // unresponsive (connected but mute) and prefer the cloud path for a cooldown.
+  recordLocalTimeout(duid) {
+    if (!duid) {
+      return;
+    }
+
+    const streak = (this.localTimeoutStreak.get(duid) || 0) + 1;
+
+    if (streak >= this.localFailoverThreshold) {
+      this.localCloudPreference.set(duid, Date.now() + this.localFailoverInterval);
+      this.localTimeoutStreak.set(duid, 0);
+      this.log.info(
+        `Local connection for ${duid} is unresponsive after ${streak} consecutive timeouts; preferring cloud for ${Math.round(this.localFailoverInterval / 60000)} min.`
+      );
+    } else {
+      this.localTimeoutStreak.set(duid, streak);
+    }
+  }
+
+  // Called by the message queue when a LOCAL request succeeds. Clears any local
+  // failover state so a recovered local connection is used again.
+  recordLocalSuccess(duid) {
+    if (!duid) {
+      return;
+    }
+
+    this.localTimeoutStreak.delete(duid);
+    this.localCloudPreference.delete(duid);
+  }
+
+  // Whether requests for a device should prefer the cloud path because its local
+  // connection is connected but unresponsive (true during the failover cooldown).
+  shouldPreferCloudLocally(duid) {
+    const until = this.localCloudPreference.get(duid);
+    return !!until && Date.now() < until;
   }
 
   // Poll a method that a device may not support. A device that never answers
