@@ -127,6 +127,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       log: this.log,
       userData: decryptedSession,
       storagePath: storagePath,
+      currentRoomMqtt: this.platformConfig.currentRoomMqtt,
     });
 
     /**

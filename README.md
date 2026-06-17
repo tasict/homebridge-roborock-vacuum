@@ -72,3 +72,42 @@ Follow these steps to install the plugin:
 Use the Homebridge UI settings page to sign in and configure the plugin. To exclude vacuums from HomeKit, add their Roborock device IDs to **Skipped Device IDs**.
 
 When Homebridge restarts, matching devices will be skipped during discovery. If a skipped device already exists in HomeKit as a cached accessory, the plugin will remove it from Homebridge.
+
+## Current Room → MQTT (optional telemetry)
+
+The plugin can publish the room a vacuum is currently cleaning to a local MQTT broker, for use in external automations (e.g. lighting that follows the vacuum room to room). This is **telemetry only** — it is not exposed to HomeKit — and is **off by default**. It reuses the `mqtt` dependency the plugin already ships, so it adds nothing when disabled.
+
+Enable it under **Current Room → MQTT** in the settings UI, or in `config.json`:
+
+```json
+"currentRoomMqtt": {
+  "enabled": true,
+  "brokerUrl": "mqtt://127.0.0.1:1883",
+  "topic": "homebridge/roborock/{duid}/current_room",
+  "cleaningPollSeconds": 10
+}
+```
+
+- **topic** is a template. `{duid}` and `{name}` (the device name, slugified) are substituted. If the template contains neither token, `/{duid}` is appended automatically so multiple vacuums never publish to the same topic.
+- **cleaningPollSeconds** is how often status is polled while the vacuum is actively cleaning (it polls slowly otherwise). The poll only runs while the feature is enabled.
+
+A retained JSON message is published whenever the room changes:
+
+```json
+{
+  "segment_id": 16,
+  "room": "Kitchen",
+  "state": 5,
+  "target_segment_id": 17,
+  "target_room": "Hallway",
+  "in_cleaning": 1,
+  "ts": 1718524800000
+}
+```
+
+- **segment_id / room** — the room currently being cleaned. `segment_id` is `-1` (and `room` `null`) when docked/idle, or transiently while the robot relocalizes; use `state` to distinguish.
+- **target_segment_id / target_room** — the next room the robot is heading to (populated during transitions), so a consumer can pre-light it. `-1`/`null` when steady or unknown.
+- **in_cleaning** — the device's own flag; `0` once a clean has concluded even while the robot returns to the dock or empties, which `state` alone does not always distinguish.
+- Room names are resolved from the robot's saved map; name your rooms in the Roborock app for them to appear.
+
+> Validated on a Roborock Qrevo (`roborock.vacuum.a185`). On models that don't populate `cleaning_info`, the payload degrades gracefully to `segment_id: -1` / `room: null`.
