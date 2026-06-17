@@ -21,6 +21,7 @@ const roborockPackageHelper =
 const deviceFeatures = require("./lib/deviceFeatures").deviceFeatures;
 const messageQueueHandler =
   require("./lib/messageQueueHandler").messageQueueHandler;
+const mqtt = require("mqtt");
 
 let socketServer, webserver;
 
@@ -50,6 +51,12 @@ class Roborock {
     this.localKeys = null;
     this.localL01Nonces = new Map();
     this.roomIDs = {};
+    // current-room -> MQTT (opt-in telemetry): per-duid segment_id -> room name
+    // cache, a lazily-opened local publisher client, and the last-published
+    // dedupe key per duid. All inert unless config.currentRoomMqtt.enabled.
+    this.segmentRoomNames = {};
+    this.localMqttClient = null;
+    this._lastRoomPublishKey = {};
     this.vacuums = {};
     this.initializedVacuumDuids = new Set();
     this.socket = null;
@@ -1277,6 +1284,16 @@ class Roborock {
       this.clearInterval(this.vacuums[duid].mainUpdateInterval);
     }
 
+    // current-room -> MQTT: tear down the local publisher client.
+    if (this.localMqttClient) {
+      try {
+        this.localMqttClient.end(true);
+      } catch (e) {
+        /* ignore */
+      }
+      this.localMqttClient = null;
+    }
+
     this.messageQueue.forEach(({ timeout102, timeout301 }) => {
       this.clearTimeout(timeout102);
       if (timeout301) {
@@ -1770,6 +1787,117 @@ class Roborock {
         return true;
       default:
         return false;
+    }
+  }
+
+  // current-room -> MQTT: lazily open a LOCAL mqtt publisher (separate from the
+  // Roborock cloud connection). Telemetry only — it never subscribes. Never
+  // throws; a down broker only logs at debug and retries via reconnectPeriod.
+  ensureLocalMqtt() {
+    const cfg = this.config && this.config.currentRoomMqtt;
+    if (!cfg || !cfg.enabled) return null;
+    if (this.localMqttClient) return this.localMqttClient;
+
+    try {
+      const url = cfg.brokerUrl || "mqtt://127.0.0.1:1883";
+      const client = mqtt.connect(url, {
+        reconnectPeriod: 5000,
+        connectTimeout: 10000,
+      });
+      client.on("error", (e) =>
+        this.log.debug(`current_room MQTT error: ${e && e.message}`)
+      );
+      client.on("connect", () =>
+        this.log.debug(`current_room MQTT connected to ${url}`)
+      );
+      // After a reconnect, drop the dedupe cache so the (retained) current room
+      // is re-published — a broker bounce may have lost the retained message.
+      client.on("reconnect", () => {
+        this._lastRoomPublishKey = {};
+      });
+      this.localMqttClient = client;
+    } catch (e) {
+      this.log.debug(`current_room MQTT connect failed: ${e && e.message}`);
+      this.localMqttClient = null;
+    }
+    return this.localMqttClient;
+  }
+
+  // current-room -> MQTT: resolve the publish topic for a device. The configured
+  // topic is a template: {duid} and {name} tokens are substituted; if it contains
+  // no token, /{duid} is appended so multiple vacuums never collide on one topic.
+  resolveRoomTopic(duid) {
+    const cfg = this.config && this.config.currentRoomMqtt;
+    let topic = (cfg && cfg.topic) || "homebridge/roborock/{duid}/current_room";
+    const hasToken = topic.includes("{duid}") || topic.includes("{name}");
+    if (!hasToken) {
+      topic = `${topic.replace(/\/+$/, "")}/${duid}`;
+    }
+    const rawName = (this.vacuums[duid] && this.vacuums[duid].name) || duid;
+    const slug = String(rawName)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    // Fall back to duid if the name slugifies to empty (e.g. a symbol-only name),
+    // so a {name}-only template can never collide or produce a malformed topic.
+    const name = slug || duid;
+    return topic.replace(/\{duid\}/g, duid).replace(/\{name\}/g, name);
+  }
+
+  // current-room -> MQTT: publish the room a vacuum is currently cleaning.
+  // segment_id comes from get_status.cleaning_info; the name is resolved from the
+  // segmentRoomNames cache (populated by the get_room_mapping handler). -1 means
+  // docked/idle or, when state indicates motion, relocalizing. target_* expose the
+  // next room (cleaning_info.target_segment_id populates during transitions) so a
+  // consumer can pre-light it; in_cleaning is the device flag (0 once a clean
+  // concludes, even while it returns/empties). Fire-and-forget; never rejects.
+  publishCurrentRoom(duid, raw) {
+    try {
+      const cfg = this.config && this.config.currentRoomMqtt;
+      if (!cfg || !cfg.enabled) return;
+      const client = this.ensureLocalMqtt();
+      if (!client || !client.connected) return;
+
+      const ci = raw && raw.cleaningInfo;
+      const segId =
+        ci && typeof ci.segment_id === "number" ? ci.segment_id : -1;
+      const room =
+        segId >= 0 ? this.segmentRoomNames?.[duid]?.[segId] ?? null : null;
+      const tSegId =
+        ci && typeof ci.target_segment_id === "number"
+          ? ci.target_segment_id
+          : -1;
+      const targetRoom =
+        tSegId >= 0 ? this.segmentRoomNames?.[duid]?.[tSegId] ?? null : null;
+      const state = typeof raw.state === "number" ? raw.state : null;
+      const inCleaning =
+        typeof raw.inCleaning === "number" ? raw.inCleaning : null;
+
+      // target_segment_id and in_cleaning MUST be in the dedupe key: they change
+      // while segment_id/state may not, so without them those transitions (e.g. a
+      // target flip -1 -> N -> -1) would be deduped away.
+      const key = `${segId}|${room}|${state}|${tSegId}|${targetRoom}|${inCleaning}`;
+      if (key === this._lastRoomPublishKey[duid]) return; // dedupe (ts excluded)
+      this._lastRoomPublishKey[duid] = key;
+
+      const topic = this.resolveRoomTopic(duid);
+      const payload = JSON.stringify({
+        segment_id: segId,
+        room,
+        state,
+        target_segment_id: tSegId,
+        target_room: targetRoom,
+        in_cleaning: inCleaning,
+        ts: Date.now(),
+      });
+      client.publish(topic, payload, { retain: true, qos: 0 }, (err) => {
+        if (err) {
+          this.log.debug(`current_room MQTT publish failed: ${err.message}`);
+          this._lastRoomPublishKey[duid] = undefined; // allow retry on next change
+        }
+      });
+    } catch (e) {
+      this.log.debug(`publishCurrentRoom error: ${e && e.message}`);
     }
   }
 

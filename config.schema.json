@@ -40,6 +40,38 @@
         "description": "When enabled, debug messages will be written to the log.",
         "type": "boolean",
         "default": false
+      },
+      "currentRoomMqtt": {
+        "title": "Current Room → MQTT",
+        "type": "object",
+        "description": "Publish the room each vacuum is currently cleaning to a local MQTT broker (telemetry only; not exposed to HomeKit). Off by default.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean",
+            "default": false,
+            "description": "Publish the current cleaning room to MQTT."
+          },
+          "brokerUrl": {
+            "title": "Broker URL",
+            "type": "string",
+            "default": "mqtt://127.0.0.1:1883",
+            "description": "MQTT broker URL."
+          },
+          "topic": {
+            "title": "Topic Template",
+            "type": "string",
+            "default": "homebridge/roborock/{duid}/current_room",
+            "description": "Topic to publish the retained current-room JSON to. Supports {duid} and {name} tokens; if neither is present, /{duid} is appended automatically so multiple vacuums don't collide."
+          },
+          "cleaningPollSeconds": {
+            "title": "Cleaning Poll Interval (s)",
+            "type": "integer",
+            "default": 10,
+            "minimum": 5,
+            "description": "How often to poll status while actively cleaning, to catch room changes."
+          }
+        }
       }
     },
     "required": ["email"]

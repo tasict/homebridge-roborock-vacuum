@@ -162,6 +162,38 @@ class vacuum {
 				const now = new Date();
 				const seconds = now.getSeconds();
 
+				// current-room -> MQTT (opt-in telemetry): a dedicated lightweight poll,
+				// independent of the legacy branch below. That branch is gated on
+				// `this.adapter.socket` (a live web-UI client) OR an undefined
+				// `config.updateInterval` (=> NaN, never true), so it does not run in
+				// normal headless operation and can't be relied on to publish. Polls fast
+				// while cleaning, idle otherwise; serialized by `_roomPollInFlight`; never
+				// runs when the feature is disabled, so default behaviour is unchanged.
+				const roomMqttCfg = this.adapter.config && this.adapter.config.currentRoomMqtt;
+				if (roomMqttCfg && roomMqttCfg.enabled) {
+					const vac = this.adapter.vacuums[duid];
+					const idleInterval = this.adapter.updateInterval || 180;
+					const fastInterval = roomMqttCfg.cleaningPollSeconds || 10;
+					const interval = vac && vac._lastIsCleaning ? Math.min(fastInterval, idleInterval) : idleInterval;
+					if (seconds % interval == 0 && !(vac && vac._roomPollInFlight)) {
+						if (vac) vac._roomPollInFlight = true;
+						try {
+							const ds = await this.adapter.messageQueueHandler.sendRequest(duid, "get_prop", ["get_status"]);
+							const s0 = (ds && ds[0]) || {};
+							if (vac) vac._lastIsCleaning = this.adapter.isCleaning(s0["state"]);
+							this.adapter.publishCurrentRoom(duid, {
+								cleaningInfo: s0["cleaning_info"],
+								state: s0["state"],
+								inCleaning: s0["in_cleaning"],
+							});
+						} catch (e) {
+							this.adapter.log.debug(`current_room poll failed: ${e && e.message}`);
+						} finally {
+							if (vac) vac._roomPollInFlight = false;
+						}
+					}
+				}
+
 				if (this.adapter.socket || seconds % this.adapter.config.updateInterval == 0) {
 					// only send status every minute or if websocket is connected
 
@@ -257,6 +289,9 @@ class vacuum {
 
 						if (roomName) {
 							this.adapter.log.debug(`Mapped room matched: ${roomID} with name: ${roomName}`);
+							// current-room -> MQTT: cache segment_id -> name for the publisher.
+							if (!this.adapter.segmentRoomNames[duid]) this.adapter.segmentRoomNames[duid] = {};
+							this.adapter.segmentRoomNames[duid][mappedRoom[0]] = roomName;
 							const objectString = `Devices.${duid}.floors.${roomFloor}.${mappedRoom[0]}`;
 							await this.adapter.createStateObjectHelper(objectString, roomName, "boolean", null, true, "value", true, true);
 						}

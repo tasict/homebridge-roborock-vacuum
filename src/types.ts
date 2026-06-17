@@ -7,4 +7,10 @@ export interface RoborockPlatformConfig extends PlatformConfig {
   baseURL?: string;
   encryptedToken?: string;
   skipDevices?: string | string[];
+  currentRoomMqtt?: {
+    enabled?: boolean;
+    brokerUrl?: string;
+    topic?: string;
+    cleaningPollSeconds?: number;
+  };
 }
