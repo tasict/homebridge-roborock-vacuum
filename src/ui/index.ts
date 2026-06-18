@@ -1,9 +1,10 @@
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { encryptSession } from "../crypto";
+import { encryptSession, decryptSession } from "../crypto";
 
 const roborockAuth = require("../../roborockLib/lib/roborockAuth");
+const roborockHome = require("../../roborockLib/lib/roborockHome");
 
 // Type definition for HomebridgePluginUiServer to maintain type safety
 interface IHomebridgePluginUiServer {
@@ -38,6 +39,10 @@ class RoborockUiServer {
     this.homebridgePluginUiServer.onRequest(
       "/auth/logout",
       this.logout.bind(this)
+    );
+    this.homebridgePluginUiServer.onRequest(
+      "/devices/list",
+      this.listDevices.bind(this)
     );
 
     this.homebridgePluginUiServer.ready();
@@ -242,6 +247,44 @@ class RoborockUiServer {
     return { ok: true, message: "Logged out. Token cleared." };
   }
 
+  private async listDevices(payload: {
+    email?: string;
+    baseURL?: string;
+    encryptedToken?: string;
+  }) {
+    if (!payload.encryptedToken) {
+      return { ok: false, message: "Log in first to load your devices." };
+    }
+
+    const userData = decryptSession(
+      payload.encryptedToken,
+      this.getStoragePath()
+    );
+    if (!userData) {
+      return {
+        ok: false,
+        message: "Saved login could not be read. Please log in again.",
+      };
+    }
+
+    try {
+      const clientID = await this.getClientId();
+      const devices = await roborockHome.fetchDevices({
+        baseURL: payload.baseURL || "usiot.roborock.com",
+        username: payload.email,
+        clientID,
+        userData,
+      });
+      return { ok: true, devices };
+    } catch (error: any) {
+      console.error("Device list request failed:", error?.message || error);
+      return {
+        ok: false,
+        message: error?.message || "Failed to load devices.",
+      };
+    }
+  }
+
   private buildNonce(): string {
     return crypto
       .randomBytes(12)
@@ -253,7 +296,7 @@ class RoborockUiServer {
 }
 
 // IMPORTANT: Use Function constructor to create a dynamic import that TypeScript won't transform
-// 
+//
 // Background: @homebridge/plugin-ui-utils v2+ is a pure ES module that cannot be loaded with require()
 // in Node.js 18+. Normally we would use `await import('@homebridge/plugin-ui-utils')`, but because
 // this project uses TypeScript with "module": "commonjs" in tsconfig.json, TypeScript transforms

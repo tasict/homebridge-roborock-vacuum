@@ -39,21 +39,33 @@
     <div class="field">
       <div class="field-header">
         <span>Skipped Device IDs</span>
-        <button
-          id="add-skip-device"
-          class="icon-button"
-          type="button"
-          title="Add skipped device"
-          aria-label="Add skipped device"
-        >
-          +
-        </button>
+        <div class="field-actions">
+          <button
+            id="load-devices"
+            class="secondary btn-small"
+            type="button"
+            title="Load devices from your account"
+          >
+            Load devices
+          </button>
+          <button
+            id="add-skip-device"
+            class="icon-button"
+            type="button"
+            title="Add skipped device"
+            aria-label="Add skipped device"
+          >
+            +
+          </button>
+        </div>
       </div>
+      <div id="discovered-devices" class="discovered-devices"></div>
       <div id="skip-devices" class="skip-device-list"></div>
     </div>
     <p class="help">
-      Matching devices will not be added to HomeKit and existing cached
-      accessories will be removed on restart.
+      Click <strong>Load devices</strong> to pick which vacuums to hide, or
+      enter device IDs manually. Matching devices will not be added to HomeKit
+      and existing cached accessories will be removed on restart.
     </p>
     <label class="checkbox">
       <input id="debug-mode" type="checkbox" />
