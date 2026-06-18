@@ -111,9 +111,12 @@ class localConnector {
 					while (offset + 4 <= client.chunkBuffer.length) {
 						const segmentLength = client.chunkBuffer.readUInt32BE(offset);
 						const currentBuffer = client.chunkBuffer.subarray(offset + 4, offset + segmentLength + 4);
-						// length of 17 does not contain any useful data.
-						// It seems to be protocol handshake metadata.
-						if (segmentLength != 17) {
+						// Short, header-only handshake frames carry no encrypted payload:
+						// the L01 HELLO_RESPONSE is 21 bytes (version+seq+random+timestamp+
+						// protocol+CRC32); a bare 17-byte header may also appear. Route both
+						// to the shortMessage handler below; anything larger is a data
+						// message with an encrypted payload.
+						if (segmentLength != 17 && segmentLength != 21) {
 							const data = this.adapter.message._decodeMsg(currentBuffer, duid);
 							if (!data) {
 								offset += 4 + segmentLength;
@@ -146,7 +149,9 @@ class localConnector {
 						else {
 							try {
 								const shortMessage = shortMessageParser.parse(currentBuffer);
-								if (shortMessage.version == "L01" && shortMessage.protocol == 1) {
+								// HELLO_RESPONSE (protocol 1) echoing our seq=1 HELLO; its
+								// random field is the ack_nonce.
+								if (shortMessage.version == "L01" && shortMessage.protocol == 1 && shortMessage.seq == 1) {
 									const currentNonces = this.adapter.localL01Nonces.get(duid) || {};
 									this.adapter.localL01Nonces.set(duid, {
 										connectNonce: currentNonces.connectNonce,
@@ -157,6 +162,7 @@ class localConnector {
 									if (waiter) {
 										this.adapter.clearTimeout(waiter.timeout);
 										this.l01HandshakeWaiters.delete(duid);
+										this.adapter.log.debug(`L01 handshake complete for ${duid}: ackNonce=${shortMessage.random}`);
 										waiter.resolve(true);
 									}
 								}
@@ -247,17 +253,28 @@ class localConnector {
 			return;
 		}
 
+		// HELLO request: protocol 0 (HELLO_REQUEST), 21-byte header+CRC frame, seq=1, a
+		// real timestamp, and random=connect_nonce. The robot replies with a protocol-1
+		// (HELLO_RESPONSE) frame whose random field is the ack_nonce. Pick a stable
+		// connect_nonce in [10000, 32767] and store it BEFORE sending, so the follow-up
+		// L01 data-message AAD reuses the exact value the robot saw in the HELLO.
 		const timestamp = Math.floor(Date.now() / 1000);
-		const handshakeMessage = await this.adapter.message.buildRoborockMessage(duid, 1, timestamp, Buffer.alloc(0));
-		if (!handshakeMessage) {
-			throw new Error(`Failed to build protocol 1 handshake message for ${duid}`);
-		}
-
-		const connectNonce = handshakeMessage.readUInt32BE(7);
+		const connectNonce = 10000 + Math.floor(Math.random() * 22768);
 		this.adapter.localL01Nonces.set(duid, {
 			connectNonce,
 			ackNonce: undefined,
 		});
+
+		const handshakeMessage = await this.adapter.message.buildRoborockMessage(
+			duid,
+			0,
+			timestamp,
+			Buffer.alloc(0),
+			{ seq: 1, random: connectNonce }
+		);
+		if (!handshakeMessage) {
+			throw new Error(`Failed to build HELLO handshake message for ${duid}`);
+		}
 
 		if (this.l01HandshakeWaiters.has(duid)) {
 			const waiter = this.l01HandshakeWaiters.get(duid);
