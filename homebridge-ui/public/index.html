@@ -65,6 +65,46 @@
     </div>
   </section>
 
+  <section class="card">
+    <h2>Current Room → MQTT</h2>
+    <p class="help">
+      Publish the room each vacuum is currently cleaning to a local MQTT broker
+      (telemetry only; not exposed to HomeKit). Off by default.
+    </p>
+    <label class="checkbox">
+      <input id="room-mqtt-enabled" type="checkbox" />
+      Publish current cleaning room to MQTT
+    </label>
+    <label>
+      Broker URL
+      <input
+        id="room-mqtt-broker"
+        type="text"
+        placeholder="mqtt://127.0.0.1:1883"
+      />
+    </label>
+    <label>
+      Topic Template
+      <input
+        id="room-mqtt-topic"
+        type="text"
+        placeholder="homebridge/roborock/{duid}/current_room"
+      />
+    </label>
+    <p class="help">
+      Supports <code>{duid}</code> and <code>{name}</code> tokens; if neither is
+      present, <code>/{duid}</code> is appended automatically so multiple
+      vacuums never collide.
+    </p>
+    <label>
+      Cleaning Poll Interval (s)
+      <input id="room-mqtt-poll" type="number" min="5" placeholder="10" />
+    </label>
+    <p class="help">
+      How often status is polled while the vacuum is actively cleaning.
+    </p>
+  </section>
+
   <section class="card" id="two-factor-section">
     <h2>Two-Factor Authentication</h2>
     <p class="help">

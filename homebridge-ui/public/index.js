@@ -6,6 +6,10 @@ const elements = {
   skipDevices: document.getElementById("skip-devices"),
   addSkipDevice: document.getElementById("add-skip-device"),
   debugMode: document.getElementById("debug-mode"),
+  roomMqttEnabled: document.getElementById("room-mqtt-enabled"),
+  roomMqttBroker: document.getElementById("room-mqtt-broker"),
+  roomMqttTopic: document.getElementById("room-mqtt-topic"),
+  roomMqttPoll: document.getElementById("room-mqtt-poll"),
   code: document.getElementById("two-factor-code"),
   login: document.getElementById("login"),
   logout: document.getElementById("logout"),
@@ -69,6 +73,13 @@ async function loadConfig() {
   renderSkipDevices(config.skipDevices);
   elements.debugMode.checked = Boolean(config.debugMode);
 
+  const roomMqtt = config.currentRoomMqtt || {};
+  elements.roomMqttEnabled.checked = Boolean(roomMqtt.enabled);
+  elements.roomMqttBroker.value = roomMqtt.brokerUrl || "";
+  elements.roomMqttTopic.value = roomMqtt.topic || "";
+  elements.roomMqttPoll.value =
+    roomMqtt.cleaningPollSeconds != null ? roomMqtt.cleaningPollSeconds : "";
+
   setLoggedInState(Boolean(config.encryptedToken));
 }
 
@@ -97,6 +108,32 @@ function getDebugMode() {
 
 function getCode() {
   return elements.code.value.trim();
+}
+
+function getRoomMqtt() {
+  const config = { enabled: Boolean(elements.roomMqttEnabled.checked) };
+
+  const brokerUrl = elements.roomMqttBroker.value.trim();
+  if (brokerUrl) {
+    config.brokerUrl = brokerUrl;
+  }
+
+  const topic = elements.roomMqttTopic.value.trim();
+  if (topic) {
+    config.topic = topic;
+  }
+
+  const pollRaw = elements.roomMqttPoll.value.trim();
+  const cleaningPollSeconds = Number(pollRaw);
+  if (pollRaw && Number.isFinite(cleaningPollSeconds)) {
+    config.cleaningPollSeconds = cleaningPollSeconds;
+  }
+
+  return config;
+}
+
+async function saveRoomMqtt() {
+  await updatePluginConfig({ currentRoomMqtt: getRoomMqtt() });
 }
 
 function parseDeviceIds(value) {
@@ -327,6 +364,10 @@ function init() {
   });
   elements.debugMode.addEventListener("change", saveCredentials);
   elements.email.addEventListener("change", saveCredentials);
+  elements.roomMqttEnabled.addEventListener("change", saveRoomMqtt);
+  elements.roomMqttBroker.addEventListener("change", saveRoomMqtt);
+  elements.roomMqttTopic.addEventListener("change", saveRoomMqtt);
+  elements.roomMqttPoll.addEventListener("change", saveRoomMqtt);
 }
 
 if (window.homebridge) {
