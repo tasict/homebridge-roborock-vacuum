@@ -96,6 +96,28 @@ textarea {
   resize: vertical;
 }
 
+.field-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-small {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+.discovered-devices {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.discovered-devices .checkbox {
+  margin-top: 0;
+  word-break: break-all;
+}
+
 .skip-device-list {
   display: grid;
   gap: 10px;

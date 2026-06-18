@@ -5,6 +5,8 @@ const elements = {
   baseUrl: document.getElementById("base-url"),
   skipDevices: document.getElementById("skip-devices"),
   addSkipDevice: document.getElementById("add-skip-device"),
+  loadDevices: document.getElementById("load-devices"),
+  discoveredDevices: document.getElementById("discovered-devices"),
   debugMode: document.getElementById("debug-mode"),
   roomMqttEnabled: document.getElementById("room-mqtt-enabled"),
   roomMqttBroker: document.getElementById("room-mqtt-broker"),
@@ -193,6 +195,93 @@ function addSkipDeviceRow(value = "", shouldFocus = true) {
   }
 }
 
+function getSkipDeviceSet() {
+  return new Set(
+    getSkipDeviceInputs()
+      .map((input) => input.value.trim())
+      .filter((entry) => entry)
+  );
+}
+
+function toggleSkipDevice(deviceId, shouldSkip) {
+  const skipped = getSkipDeviceSet();
+  if (shouldSkip) {
+    skipped.add(deviceId);
+  } else {
+    skipped.delete(deviceId);
+  }
+  renderSkipDevices([...skipped]);
+  saveCredentials();
+}
+
+function renderDiscoveredDevices(devices) {
+  elements.discoveredDevices.textContent = "";
+
+  if (!Array.isArray(devices) || devices.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "help";
+    empty.textContent = "No devices found on this account.";
+    elements.discoveredDevices.appendChild(empty);
+    return;
+  }
+
+  const skipped = getSkipDeviceSet();
+  devices.forEach((device) => {
+    const row = document.createElement("label");
+    row.className = "checkbox";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = skipped.has(device.duid);
+    input.addEventListener("change", () =>
+      toggleSkipDevice(device.duid, input.checked)
+    );
+
+    const label = document.createElement("span");
+    const model = device.model ? ` (${device.model})` : "";
+    const shared = device.shared ? " — shared" : "";
+    label.textContent = `${device.name || device.duid}${model} — ${device.duid}${shared}`;
+
+    row.append(input, label);
+    elements.discoveredDevices.appendChild(row);
+  });
+}
+
+async function loadDevices() {
+  if (
+    !window.homebridge ||
+    typeof window.homebridge.getPluginConfig !== "function"
+  ) {
+    return;
+  }
+
+  const configs = await window.homebridge.getPluginConfig();
+  const config = configs.find(
+    (entry) => entry.platform === "RoborockVacuumPlatform"
+  );
+  const encryptedToken = config && config.encryptedToken;
+  if (!encryptedToken) {
+    showToast("warning", "Log in first to load your devices.");
+    return;
+  }
+
+  elements.loadDevices.disabled = true;
+  try {
+    const result = await request("/devices/list", {
+      email: getEmail(),
+      baseURL: getBaseUrl(),
+      encryptedToken,
+    });
+    if (result.ok) {
+      renderDiscoveredDevices(result.devices);
+    } else {
+      showToast("error", result.message || "Failed to load devices.");
+    }
+  } finally {
+    elements.loadDevices.disabled = false;
+  }
+}
+
 async function saveCredentials() {
   const email = getEmail();
   const baseURL = getBaseUrl();
@@ -361,6 +450,11 @@ function init() {
   elements.baseUrl.addEventListener("change", saveCredentials);
   elements.addSkipDevice.addEventListener("click", () => {
     addSkipDeviceRow();
+  });
+  elements.loadDevices.addEventListener("click", () => {
+    loadDevices().catch(() => {
+      showToast("error", "Failed to load devices.");
+    });
   });
   elements.debugMode.addEventListener("change", saveCredentials);
   elements.email.addEventListener("change", saveCredentials);
