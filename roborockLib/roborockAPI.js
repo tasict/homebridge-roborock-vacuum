@@ -460,7 +460,7 @@ class Roborock {
     // Get home details.
     try {
       const homeDetail = await this.loginApi.get("api/v1/getHomeDetail");
-      if (homeDetail) {
+      if (homeDetail && homeDetail.data && homeDetail.data.data) {
         const homeId = homeDetail.data.data.rrHomeId;
 
         if (this.api) {
@@ -583,6 +583,14 @@ class Roborock {
           );
           await this.deleteStateAsync(`UserData`);
         }
+      } else {
+        this.log.warn(
+          "The stored Roborock session is invalid or expired. " +
+            "Deleting cached UserData to force a new login. " +
+            "Please re-authenticate in the plugin settings if this persists."
+        );
+        this.userData = null;
+        await this.deleteStateAsync(`UserData`);
       }
     } catch (error) {
       this.log.error("Failed to get home details: " + error.stack);
@@ -2063,7 +2071,10 @@ class Roborock {
     const streak = (this.localTimeoutStreak.get(duid) || 0) + 1;
 
     if (streak >= this.localFailoverThreshold) {
-      this.localCloudPreference.set(duid, Date.now() + this.localFailoverInterval);
+      this.localCloudPreference.set(
+        duid,
+        Date.now() + this.localFailoverInterval
+      );
       this.localTimeoutStreak.set(duid, 0);
       this.log.info(
         `Local connection for ${duid} is unresponsive after ${streak} consecutive timeouts; preferring cloud for ${Math.round(this.localFailoverInterval / 60000)} min.`
@@ -2106,6 +2117,55 @@ class Roborock {
 
   async app_start(duid) {
     await this.startCommand(duid, "app_start", null);
+  }
+
+  /**
+   * Play the locate sound on the vacuum ("find me"). Used by the Matter
+   * Identify command.
+   */
+  async findMe(duid) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    const vacuum = this.vacuums[duid];
+    if (!vacuum) {
+      this.log.warn(`findMe: unknown device ${duid}.`);
+      return;
+    }
+
+    await vacuum.command(duid, "find_me", null);
+  }
+
+  /**
+   * Set the cleaning motor parameters used by the Matter clean-mode mapping.
+   * parameters: { fan_power?: number, water_box_mode?: number }
+   * fan_power uses set_custom_mode (105 = suction off / mop only) and
+   * water_box_mode uses set_water_box_custom_mode (200 = water off / vacuum only).
+   */
+  async setCleanModeParameters(duid, parameters) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    const vacuum = this.vacuums[duid];
+    if (!vacuum) {
+      this.log.warn(`setCleanModeParameters: unknown device ${duid}.`);
+      return;
+    }
+
+    if (parameters && parameters.fan_power !== undefined) {
+      await vacuum.command(duid, "set_custom_mode", parameters.fan_power);
+    }
+    if (parameters && parameters.water_box_mode !== undefined) {
+      await vacuum.command(
+        duid,
+        "set_water_box_custom_mode",
+        parameters.water_box_mode
+      );
+    }
   }
 
   async app_stop(duid) {

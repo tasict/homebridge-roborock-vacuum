@@ -69,9 +69,23 @@ Follow these steps to install the plugin:
 
 ## Configuration
 
-Use the Homebridge UI settings page to sign in and configure the plugin. To exclude vacuums from HomeKit, add their Roborock device IDs to **Skipped Device IDs**.
+Use the Homebridge UI settings page to sign in and configure the plugin. Click **Load devices** to list the vacuums on your account, then choose a protocol for each one:
 
-When Homebridge restarts, matching devices will be skipped during discovery. If a skipped device already exists in HomeKit as a cached accessory, the plugin will remove it from Homebridge.
+- **HomeKit (HAP)** — the default. The vacuum is bridged to Apple Home as a fan-style accessory, as in previous versions.
+- **Matter** — the vacuum is published over Matter as a robotic vacuum cleaner, so it gets the native vacuum icon and controls in Apple Home (and works with Google Home, Alexa and SmartThings). See the requirements below.
+- **Skip** — the vacuum is excluded entirely. You can also enter device IDs manually in the list below; manual entries are always skipped.
+
+When Homebridge restarts, each device is (re)published according to its selection. A device that was cached under a different protocol (or is now skipped) is removed from the old bridge first. **Changing a device's protocol re-creates the accessory**, so it loses its room and automation assignments in your home app and must be re-organized there.
+
+### Matter support
+
+Publishing over Matter requires **Homebridge 2.x with Matter enabled on the bridge this plugin runs on**. If the plugin runs on the main bridge, set `"matter": true` on the `bridge` block. If the plugin runs as a child bridge (the default when configured through the Homebridge UI), enable Matter on the child bridge instead — the plugin settings page shows an **"Enable Matter on this plugin's child bridge"** checkbox (writes `_bridge.matter` for you; a Homebridge restart is required to apply). The per-device Matter option only appears when the relevant bridge has Matter enabled. On Homebridge 1.x, or when Matter is disabled, any device set to Matter automatically falls back to HAP with a warning in the log, so nothing breaks.
+
+Matter support in Homebridge is still evolving and the bridge is uncertified, so some controllers may show a warning when you first pair it. Pairing is one-time per bridge — switching a device between HAP and Matter does **not** require re-pairing.
+
+Each Matter device is published as its own Matter node with its **own pairing code** (not the bridge's code). After a restart, the plugin settings page shows the pairing QR code, the manual pairing code, and the commissioning status under every Matter-selected device — scan the QR code (or enter the manual code) in your controller app to add the vacuum.
+
+Over Matter the vacuum exposes **Vacuum / Mop / Vacuum & Mop** clean modes (mapped to the Roborock suction and water-box settings), and every Roborock **scene** that targets the device is published as an on/off button on the plugin's Matter bridge; when the same scene name exists on more than one Matter vacuum, the vacuum's name is appended to keep the buttons distinguishable. The Identify command ("play sound to locate" in Apple Home) plays the vacuum's find-me sound. Scene list changes are picked up on the next Homebridge restart.
 
 ## Current Room → MQTT (optional telemetry)
 

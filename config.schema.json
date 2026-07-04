@@ -30,6 +30,11 @@
         "type": "string",
         "description": "Roborock device IDs to exclude from HomeKit."
       },
+      "matterDevices": {
+        "title": "Matter Device IDs",
+        "type": "string",
+        "description": "Roborock device IDs to publish over Matter instead of HAP. Requires Homebridge 2.x with Matter enabled; ignored otherwise."
+      },
       "baseURL": {
         "type": "string",
         "default": "https://usiot.roborock.com",

@@ -4,18 +4,26 @@ import {
   Characteristic,
   DynamicPlatformPlugin,
   Logger,
+  MatterAccessory,
   PlatformAccessory,
   PlatformConfig,
   Service,
 } from "homebridge";
 
 import RoborockVacuumAccessory from "./vacuum_accessory";
+import { RoborockVacuumMatterAccessory } from "./vacuum_matter_accessory";
+import { RoborockSceneMatterAccessory } from "./scene_matter_accessory";
 
 import RoborockPlatformLogger from "./logger";
 import { RoborockPlatformConfig } from "./types";
 import { PLATFORM_NAME, PLUGIN_NAME } from "./settings";
-import { forEach } from "jszip";
 import { decryptSession } from "./crypto";
+import {
+  DeviceProtocol,
+  isMatterFallback,
+  parseDeviceIds,
+  resolveDeviceProtocol,
+} from "./protocol";
 
 const DEP0040_CODE = "DEP0040";
 let dep0040FilterInstalled = false;
@@ -69,20 +77,32 @@ const Roborock = require("../roborockLib/roborockAPI").Roborock;
  * Based on https://github.com/homebridge/homebridge-plugin-template
  */
 export default class RoborockPlatform implements DynamicPlatformPlugin {
-  public readonly Service: typeof Service = this.api.hap.Service;
-  public readonly Characteristic: typeof Characteristic =
-    this.api.hap.Characteristic;
+  public readonly Service: typeof Service;
+  public readonly Characteristic: typeof Characteristic;
 
   // Used to track restored cached accessories
   private readonly accessories: PlatformAccessory<String>[] = [];
   private readonly cachedAccessoriesToRemove: PlatformAccessory<String>[] = [];
   private readonly vacuums: RoborockVacuumAccessory[] = [];
 
+  // Matter (Homebridge 2.x) — populated only when Matter is available.
+  private readonly matterAccessories: Map<string, MatterAccessory> = new Map();
+  private readonly matterVacuums: Map<string, RoborockVacuumMatterAccessory> =
+    new Map();
+  private matterEnabled = false;
+  // Matter scene buttons registered this session, and per-device info needed
+  // to (re)create them when scenes finish loading after startup.
+  private readonly matterSceneUuids: Set<string> = new Set();
+  private readonly matterDeviceInfo: Map<string, any> = new Map();
+  private matterSceneSyncInProgress = false;
+
   public readonly roborockAPI: any;
   public readonly log: RoborockPlatformLogger;
+  private readonly homebridgeLogger: Logger;
 
   public platformConfig: RoborockPlatformConfig;
   private readonly skippedDeviceIds: Set<string>;
+  private readonly matterDeviceIds: Set<string>;
 
   /**
    * This constructor is where you should parse the user config
@@ -97,9 +117,15 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     config: PlatformConfig,
     private readonly api: API
   ) {
+    this.Service = api.hap.Service;
+    this.Characteristic = api.hap.Characteristic;
     this.platformConfig = config as RoborockPlatformConfig;
+    this.homebridgeLogger = homebridgeLogger;
     this.skippedDeviceIds = new Set(
-      this.parseDeviceIds(this.platformConfig.skipDevices)
+      parseDeviceIds(this.platformConfig.skipDevices)
+    );
+    this.matterDeviceIds = new Set(
+      parseDeviceIds(this.platformConfig.matterDevices)
     );
 
     // Initialise logging utility
@@ -151,9 +177,57 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   }
 
   async configurePlugin() {
-    this.removeSkippedCachedAccessories();
+    await this.detectMatterSupport();
+    this.reconcileHapCachedAccessories();
+    await this.reconcileMatterCachedAccessories();
     this.removeDeferredCachedAccessories();
     await this.loginAndDiscoverDevices();
+  }
+
+  /**
+   * Detect whether the Homebridge runtime exposes an enabled Matter bridge.
+   * On Homebridge 1.x, or when Matter is disabled, this stays false and every
+   * device is published over HAP (Matter selections fall back with a warning).
+   */
+  private async detectMatterSupport(): Promise<void> {
+    const available = this.api.isMatterAvailable?.() ?? false;
+    const enabled = this.api.isMatterEnabled?.() ?? false;
+
+    if (available && enabled) {
+      this.matterEnabled = true;
+      this.log.info("Matter support is enabled.");
+      return;
+    }
+
+    this.matterEnabled = false;
+    if (this.matterDeviceIds.size > 0) {
+      this.log.warn(
+        "One or more devices are configured for Matter, but Matter is not " +
+          "available in this Homebridge. They will be published over HAP instead. " +
+          'Enable Matter (Homebridge 2.x, "matter": true on the bridge or ' +
+          '"_bridge") to use it.'
+      );
+    }
+  }
+
+  private resolveProtocol(deviceId: unknown): DeviceProtocol {
+    if (typeof deviceId !== "string" && !(deviceId instanceof String)) {
+      return "hap";
+    }
+
+    return resolveDeviceProtocol(`${deviceId}`, {
+      skipIds: this.skippedDeviceIds,
+      matterIds: this.matterDeviceIds,
+      matterEnabled: this.matterEnabled,
+    });
+  }
+
+  private isMatterFallbackDevice(deviceId: string): boolean {
+    return isMatterFallback(deviceId, {
+      skipIds: this.skippedDeviceIds,
+      matterIds: this.matterDeviceIds,
+      matterEnabled: this.matterEnabled,
+    });
   }
 
   async loginAndDiscoverDevices() {
@@ -181,6 +255,18 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       for (const vacuum of self.vacuums) {
         vacuum.notifyDeviceUpdater(id, homeData);
       }
+
+      if (id === "HomeData") {
+        // Scenes load asynchronously; sync the Matter scene buttons once
+        // they are available (or when they change).
+        self.syncMatterScenes();
+      } else {
+        const matterVacuum = self.matterVacuums.get(id);
+        if (matterVacuum) {
+          const deviceData = homeData?.deviceStatus || homeData;
+          matterVacuum.updateFromRoborockData(deviceData);
+        }
+      }
     });
 
     self.roborockAPI.startService(function () {
@@ -194,7 +280,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
    * This function is invoked when Homebridge restores cached accessories from disk at startup.
    * It should be used to set up event handlers for characteristics and update respective values.
    */
-  configureAccessory(accessory: PlatformAccessory<String>) {
+  configureAccessory(restoredAccessory: PlatformAccessory) {
+    // This plugin stores the device id (duid) string directly in context.
+    const accessory = restoredAccessory as PlatformAccessory<String>;
     this.log.info(`Loading accessory '${accessory.displayName}' from cache.`);
 
     if (this.isSkippedDeviceId(accessory.context)) {
@@ -228,40 +316,100 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     this.accessories.push(accessory);
   }
 
+  /**
+   * Invoked by Homebridge 2.x when it restores cached Matter accessories from
+   * disk at startup. Never called on Homebridge 1.x.
+   */
+  configureMatterAccessory(accessory: MatterAccessory) {
+    this.log.info(
+      `Loading Matter accessory '${accessory.displayName}' from cache.`
+    );
+    this.matterAccessories.set(accessory.UUID, accessory);
+  }
+
   isSupportedDevice(model: string): boolean {
     //model nust starts with "roborock.vacuum."
     return model.startsWith("roborock.vacuum.");
   }
 
-  parseDeviceIds(value: RoborockPlatformConfig["skipDevices"]): string[] {
-    if (!value) {
-      return [];
-    }
-
-    const entries = Array.isArray(value) ? value : value.split(/[\n,]+/);
-
-    return entries
-      .map((entry) => `${entry}`.trim())
-      .filter((entry) => entry.length > 0);
-  }
-
   isSkippedDeviceId(deviceId: unknown): boolean {
-    if (typeof deviceId !== "string" && !(deviceId instanceof String)) {
-      return false;
-    }
-
-    return this.skippedDeviceIds.has(`${deviceId}`.trim());
+    return this.resolveProtocol(deviceId) === "skip";
   }
 
-  private removeSkippedCachedAccessories(): void {
+  /**
+   * Remove HAP cached accessories whose device is no longer published over HAP
+   * (now skipped, or now published over Matter). Matter fallback devices keep
+   * their HAP accessory because resolveProtocol reports them as "hap".
+   */
+  private reconcileHapCachedAccessories(): void {
     for (const cachedAccessory of [...this.accessories]) {
-      if (this.isSkippedDeviceId(cachedAccessory.context)) {
-        this.unregisterCachedAccessory(
-          cachedAccessory,
-          "because it is configured to be skipped"
-        );
+      const protocol = this.resolveProtocol(cachedAccessory.context);
+      if (protocol === "hap") {
+        continue;
       }
+
+      this.unregisterCachedAccessory(
+        cachedAccessory,
+        protocol === "skip"
+          ? "because it is configured to be skipped"
+          : "because it is now published over Matter"
+      );
     }
+  }
+
+  /**
+   * Remove Matter cached accessories whose device is no longer published over
+   * Matter (switched back to HAP, or now skipped).
+   */
+  private async reconcileMatterCachedAccessories(): Promise<void> {
+    if (!this.matterEnabled) {
+      return;
+    }
+
+    for (const [uuid, cachedAccessory] of [...this.matterAccessories]) {
+      const duid = cachedAccessory.context?.duid as string | undefined;
+      if (duid && this.resolveProtocol(duid) === "matter") {
+        continue;
+      }
+
+      await this.unregisterMatterAccessory(
+        uuid,
+        cachedAccessory,
+        "because it is no longer published over Matter"
+      );
+    }
+  }
+
+  private async unregisterMatterAccessory(
+    uuid: string,
+    accessory: MatterAccessory,
+    reason: string
+  ): Promise<void> {
+    if (!this.api.matter) {
+      return;
+    }
+    this.log.info(
+      `Removing Matter accessory '${accessory.displayName}' (${uuid}) ${reason}.`
+    );
+
+    try {
+      await this.api.matter.unregisterPlatformAccessories(
+        PLUGIN_NAME,
+        PLATFORM_NAME,
+        [accessory]
+      );
+    } catch (error) {
+      this.log.error(
+        `Unable to remove Matter accessory '${accessory.displayName}': ${error}`
+      );
+      this.log.debug(error);
+    }
+
+    const duid = accessory.context?.duid as string | undefined;
+    if (duid && accessory.context?.sceneId === undefined) {
+      this.matterVacuums.delete(duid);
+    }
+    this.matterAccessories.delete(uuid);
   }
 
   private removeDeferredCachedAccessories(): void {
@@ -317,6 +465,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
 
     try {
       const self = this;
+      const matterToRegister: MatterAccessory[] = [];
 
       if (self.roborockAPI.isInited()) {
         self.roborockAPI.getVacuumList().forEach(function (device) {
@@ -324,7 +473,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
           var name = device.name;
           var model = self.roborockAPI.getProductAttribute(duid, "model");
 
-          if (self.isSkippedDeviceId(duid)) {
+          const protocol = self.resolveProtocol(duid);
+
+          if (protocol === "skip") {
             self.log.info(
               `Skipping device '${name}' (${duid}) because it is configured to be skipped.`
             );
@@ -335,6 +486,18 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
           if (!self.isSupportedDevice(model)) {
             self.log.info(`Device '${name}' (${duid}) is not supported.`);
 
+            return;
+          }
+
+          if (self.isMatterFallbackDevice(duid)) {
+            self.log.warn(
+              `Device '${name}' (${duid}) is configured for Matter, but Matter ` +
+                "is unavailable; publishing it over HAP instead."
+            );
+          }
+
+          if (protocol === "matter") {
+            self.discoverMatterDevice(device, duid, name, matterToRegister);
             return;
           }
 
@@ -384,14 +547,46 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         });
       }
 
+      // Register all newly discovered Matter accessories in a single batch.
+      if (
+        matterToRegister.length > 0 &&
+        self.matterEnabled &&
+        self.api.matter
+      ) {
+        self.log.info(
+          `Registering ${matterToRegister.length} new Matter accessory(ies)...`
+        );
+        await self.api.matter.registerPlatformAccessories(
+          PLUGIN_NAME,
+          PLATFORM_NAME,
+          matterToRegister
+        );
+
+        for (const vacuum of self.matterVacuums.values()) {
+          vacuum.refreshCleanModes();
+        }
+      }
+
       // At this point, we set up all devices from Roborock App, but we did not unregister
       // cached devices that do not exist on the Roborock App account anymore.
+      // Only do this when the Roborock service initialized successfully;
+      // otherwise a login/network failure would wipe every cached accessory.
+      if (!self.roborockAPI.isInited()) {
+        this.log.warn(
+          "Skipping cached accessory cleanup because the Roborock service " +
+            "did not initialize successfully."
+        );
+        return;
+      }
       for (const cachedAccessory of [...this.accessories]) {
         if (cachedAccessory.context) {
-          if (this.isSkippedDeviceId(cachedAccessory.context)) {
+          const protocol = this.resolveProtocol(cachedAccessory.context);
+          if (protocol !== "hap") {
             this.unregisterCachedAccessory(
               cachedAccessory,
-              "because it is configured to be skipped"
+              protocol === "skip"
+                ? "because it is configured to be skipped"
+                : "because it is now published over Matter"
             );
             continue;
           }
@@ -409,6 +604,23 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
           }
         }
       }
+
+      // Remove Matter cached accessories whose device is gone from the account.
+      if (self.matterEnabled) {
+        for (const [uuid, cachedAccessory] of [...self.matterAccessories]) {
+          const duid = cachedAccessory.context?.duid as string | undefined;
+          if (
+            duid &&
+            self.roborockAPI.getVacuumDeviceData(duid) === undefined
+          ) {
+            await self.unregisterMatterAccessory(
+              uuid,
+              cachedAccessory,
+              "because it does not exist on the Roborock account anymore"
+            );
+          }
+        }
+      }
     } catch (error) {
       this.log.error(
         "An error occurred during device discovery. " +
@@ -416,6 +628,190 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       );
       this.log.debug(error);
     }
+  }
+
+  private discoverMatterDevice(
+    device: any,
+    duid: string,
+    name: string,
+    toRegister: MatterAccessory[]
+  ): void {
+    const matter = this.api.matter;
+    if (!matter) {
+      this.log.warn(
+        `Cannot publish '${name}' over Matter because the Matter API is unavailable.`
+      );
+      return;
+    }
+    const uuid = matter.uuid.generate(duid);
+    const isCached = this.matterAccessories.has(uuid);
+
+    const vacuum = new RoborockVacuumMatterAccessory(
+      this.api,
+      this.homebridgeLogger,
+      this.log,
+      device,
+      this.roborockAPI
+    );
+    this.matterVacuums.set(duid, vacuum);
+    this.matterDeviceInfo.set(duid, device);
+
+    // Unlike HAP, Homebridge does not rebuild Matter endpoints or command
+    // handlers from its cache — the plugin must register every accessory on
+    // every launch. The Matter cache only preserves attribute state and the
+    // commissioning info, so re-registering never requires re-pairing.
+    this.log.info(
+      isCached
+        ? `Re-registering Matter accessory '${name}' (${uuid}) from cache.`
+        : `Adding Matter accessory '${name}' (${uuid}).`
+    );
+    const accessory = vacuum.toAccessory();
+    this.matterAccessories.set(uuid, accessory);
+    toRegister.push(accessory);
+
+    this.collectMatterSceneAccessories(device, duid, toRegister);
+
+    const deviceData = this.roborockAPI.getVacuumDeviceData(duid);
+    if (deviceData && deviceData.deviceStatus) {
+      vacuum.updateFromRoborockData(deviceData.deviceStatus);
+    }
+  }
+
+  /** Enabled Roborock scenes targeting the device (empty when unknown). */
+  private getMatterScenes(duid: string): any[] {
+    try {
+      const scenes = this.roborockAPI.getScenesForDevice(duid) || [];
+      return scenes.filter((scene: any) => scene.enabled !== false);
+    } catch (error) {
+      this.log.debug(`Failed to read scenes for ${duid}: ${error}`);
+      return [];
+    }
+  }
+
+  /**
+   * Scene names that appear on more than one Matter device (or more than
+   * once). Buttons for these get the vacuum name appended so they stay
+   * distinguishable in the controller app.
+   */
+  private duplicateMatterSceneNames(): Set<string> {
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    for (const duid of this.matterDeviceInfo.keys()) {
+      for (const scene of this.getMatterScenes(duid)) {
+        const sceneName = String(scene.name || "");
+        if (seen.has(sceneName)) {
+          duplicates.add(sceneName);
+        } else {
+          seen.add(sceneName);
+        }
+      }
+    }
+    return duplicates;
+  }
+
+  /**
+   * Create Matter scene buttons (one bridged on/off outlet per enabled
+   * Roborock scene that targets the device) and queue the new ones for
+   * registration. Bridged accessories carry BridgedDeviceBasicInformation,
+   * so controllers show their names — child endpoints of the vacuum's node
+   * do not (Apple Home renders them nameless and mislabels the node).
+   * Cached buttons whose scene no longer exists are unregistered.
+   */
+  private collectMatterSceneAccessories(
+    device: any,
+    duid: string,
+    toRegister: MatterAccessory[]
+  ): void {
+    const matter = this.api.matter;
+    if (!matter) {
+      return;
+    }
+
+    const duplicates = this.duplicateMatterSceneNames();
+    const activeUuids = new Set<string>();
+    for (const scene of this.getMatterScenes(duid)) {
+      const uuid = matter.uuid.generate(`${duid}-scene-${scene.id}`);
+      activeUuids.add(uuid);
+      if (this.matterSceneUuids.has(uuid)) {
+        continue; // Already registered this session.
+      }
+
+      const sceneName = String(scene.name || `Scene ${scene.id}`);
+      const displayName = duplicates.has(sceneName)
+        ? `${sceneName} (${device.name})`
+        : sceneName;
+
+      const sceneAccessory = new RoborockSceneMatterAccessory(
+        this.api,
+        this.homebridgeLogger,
+        device,
+        scene,
+        displayName,
+        this.roborockAPI
+      ).toAccessory();
+
+      this.log.info(
+        `Adding Matter scene button '${displayName}' (${uuid}) ` +
+          `for '${device.name}'.`
+      );
+      this.matterSceneUuids.add(uuid);
+      this.matterAccessories.set(uuid, sceneAccessory);
+      toRegister.push(sceneAccessory);
+    }
+
+    for (const [uuid, cached] of [...this.matterAccessories]) {
+      const context = cached.context || {};
+      if (
+        context.duid === duid &&
+        context.sceneId !== undefined &&
+        !activeUuids.has(uuid)
+      ) {
+        this.matterSceneUuids.delete(uuid);
+        this.unregisterMatterAccessory(
+          uuid,
+          cached,
+          "because its scene no longer exists"
+        ).catch((error) => {
+          this.log.debug(`Failed to remove stale scene button: ${error}`);
+        });
+      }
+    }
+  }
+
+  /**
+   * Register scene buttons that become known after startup — the Roborock
+   * scene list loads asynchronously, so the first HomeData notification is
+   * often the earliest moment scenes exist.
+   */
+  private syncMatterScenes(): void {
+    if (
+      !this.matterEnabled ||
+      !this.api.matter ||
+      this.matterSceneSyncInProgress ||
+      this.matterDeviceInfo.size === 0
+    ) {
+      return;
+    }
+
+    this.matterSceneSyncInProgress = true;
+    const toRegister: MatterAccessory[] = [];
+    for (const [duid, device] of this.matterDeviceInfo) {
+      this.collectMatterSceneAccessories(device, duid, toRegister);
+    }
+
+    if (toRegister.length === 0) {
+      this.matterSceneSyncInProgress = false;
+      return;
+    }
+
+    this.api.matter
+      .registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, toRegister)
+      .catch((error) => {
+        this.log.warn(`Failed to register Matter scene buttons: ${error}`);
+      })
+      .finally(() => {
+        this.matterSceneSyncInProgress = false;
+      });
   }
 
   createRoborockAccessory(accessory: PlatformAccessory<String>) {
