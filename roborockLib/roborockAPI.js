@@ -460,7 +460,7 @@ class Roborock {
     // Get home details.
     try {
       const homeDetail = await this.loginApi.get("api/v1/getHomeDetail");
-      if (homeDetail) {
+      if (homeDetail && homeDetail.data && homeDetail.data.data) {
         const homeId = homeDetail.data.data.rrHomeId;
 
         if (this.api) {
@@ -583,6 +583,14 @@ class Roborock {
           );
           await this.deleteStateAsync(`UserData`);
         }
+      } else {
+        this.log.warn(
+          "The stored Roborock session is invalid or expired. " +
+            "Deleting cached UserData to force a new login. " +
+            "Please re-authenticate in the plugin settings if this persists."
+        );
+        this.userData = null;
+        await this.deleteStateAsync(`UserData`);
       }
     } catch (error) {
       this.log.error("Failed to get home details: " + error.stack);
@@ -2063,7 +2071,10 @@ class Roborock {
     const streak = (this.localTimeoutStreak.get(duid) || 0) + 1;
 
     if (streak >= this.localFailoverThreshold) {
-      this.localCloudPreference.set(duid, Date.now() + this.localFailoverInterval);
+      this.localCloudPreference.set(
+        duid,
+        Date.now() + this.localFailoverInterval
+      );
       this.localTimeoutStreak.set(duid, 0);
       this.log.info(
         `Local connection for ${duid} is unresponsive after ${streak} consecutive timeouts; preferring cloud for ${Math.round(this.localFailoverInterval / 60000)} min.`
@@ -2108,12 +2119,160 @@ class Roborock {
     await this.startCommand(duid, "app_start", null);
   }
 
+  /**
+   * Play the locate sound on the vacuum ("find me"). Used by the Matter
+   * Identify command.
+   */
+  async findMe(duid) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    const vacuum = this.vacuums[duid];
+    if (!vacuum) {
+      this.log.warn(`findMe: unknown device ${duid}.`);
+      return;
+    }
+
+    await vacuum.command(duid, "find_me", null);
+  }
+
+  /**
+   * Set the cleaning motor parameters used by the Matter clean-mode mapping.
+   * parameters: { fan_power?: number, water_box_mode?: number }
+   * fan_power uses set_custom_mode (105 = suction off / mop only) and
+   * water_box_mode uses set_water_box_custom_mode (200 = water off / vacuum only).
+   */
+  async setCleanModeParameters(duid, parameters) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    const vacuum = this.vacuums[duid];
+    if (!vacuum) {
+      this.log.warn(`setCleanModeParameters: unknown device ${duid}.`);
+      return;
+    }
+
+    if (parameters && parameters.fan_power !== undefined) {
+      await vacuum.command(duid, "set_custom_mode", parameters.fan_power);
+    }
+    if (parameters && parameters.water_box_mode !== undefined) {
+      await vacuum.command(
+        duid,
+        "set_water_box_custom_mode",
+        parameters.water_box_mode
+      );
+    }
+  }
+
   async app_stop(duid) {
     await this.startCommand(duid, "app_stop", null);
   }
 
+  async app_pause(duid) {
+    await this.startCommand(duid, "app_pause", null);
+  }
+
   async app_charge(duid) {
     await this.startCommand(duid, "app_charge", null);
+  }
+
+  /**
+   * Named rooms for a device, from the segmentRoomNames cache populated by the
+   * periodic get_room_mapping poll. Used by the Matter ServiceArea cluster.
+   * Returns [{ segmentId, name }] sorted by segmentId; empty until the first
+   * successful room-mapping poll (rooms must be named in the Roborock app).
+   */
+  getSegmentRooms(duid) {
+    const rooms = (this.segmentRoomNames && this.segmentRoomNames[duid]) || {};
+
+    return Object.keys(rooms)
+      .map((segmentId) => ({
+        segmentId: Number(segmentId),
+        name: String(rooms[segmentId]),
+      }))
+      .filter((room) => Number.isFinite(room.segmentId))
+      .sort((a, b) => a.segmentId - b.segmentId);
+  }
+
+  /**
+   * Clean specific rooms (segments). segmentIds is an array of segment ids as
+   * reported by get_room_mapping. Used by the Matter ServiceArea cluster.
+   */
+  async app_segment_clean(duid, segmentIds, repeat = 1) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    if (!this.vacuums[duid]) {
+      this.log.warn(`app_segment_clean: unknown device ${duid}.`);
+      return;
+    }
+
+    const segments = (segmentIds || [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id));
+    if (segments.length === 0) {
+      this.log.warn(`app_segment_clean: no valid segment ids for ${duid}.`);
+      return;
+    }
+
+    await this.messageQueueHandler.sendRequest(duid, "app_segment_clean", [
+      { segments: segments, repeat: repeat },
+    ]);
+  }
+
+  /**
+   * Resume a paused segment (room) clean. app_start would restart a full
+   * clean instead, so the Matter Resume command uses this for segment cleans.
+   */
+  async resume_segment_clean(duid) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    if (!this.vacuums[duid]) {
+      this.log.warn(`resume_segment_clean: unknown device ${duid}.`);
+      return;
+    }
+
+    await this.messageQueueHandler.sendRequest(
+      duid,
+      "resume_segment_clean",
+      []
+    );
+  }
+
+  /**
+   * Motor capabilities used by the Matter clean-mode mapping. Values follow
+   * the V1 protocol shared by the supported models (fan 101-105, water
+   * 200-203); mopSupported comes from the per-model feature list so mop-less
+   * vacuums do not advertise mop modes.
+   */
+  getCleanModeCapabilities(duid) {
+    let mopSupported = true;
+
+    try {
+      const features = this.vacuums[duid]?.features?.getFeatureList?.();
+      if (features && typeof features.isWaterBoxSupported === "boolean") {
+        mopSupported = features.isWaterBoxSupported;
+      }
+    } catch (error) {
+      this.log.debug(`getCleanModeCapabilities: ${error}`);
+    }
+
+    return {
+      fanOff: 105,
+      fanDefault: 102,
+      waterOff: 200,
+      waterDefault: 202,
+      mopSupported: mopSupported,
+    };
   }
 
   async getStatus(duid, vacuum) {

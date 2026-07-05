@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles.css?v=1.7.6" />
 
 <main class="container">
   <header>
@@ -38,7 +38,7 @@
     </label>
     <div class="field">
       <div class="field-header">
-        <span>Skipped Device IDs</span>
+        <span>Devices</span>
         <div class="field-actions">
           <button
             id="load-devices"
@@ -63,10 +63,26 @@
       <div id="skip-devices" class="skip-device-list"></div>
     </div>
     <p class="help">
-      Click <strong>Load devices</strong> to pick which vacuums to hide, or
-      enter device IDs manually. Matching devices will not be added to HomeKit
-      and existing cached accessories will be removed on restart.
+      Click <strong>Load devices</strong> to choose how each vacuum is
+      published: <strong>HomeKit (HAP)</strong> (default),
+      <strong>Matter</strong> (requires Homebridge 2.x with Matter enabled), or
+      <strong>Skip</strong>. Manually entered IDs below are always skipped.
+      Changing a device's protocol re-creates it on restart, so it loses its
+      room and automation assignments in your home app.
     </p>
+    <div id="matter-section" class="hidden">
+      <label class="checkbox">
+        <input id="matter-child-bridge" type="checkbox" />
+        Enable Matter on this plugin's child bridge
+      </label>
+      <p class="help">
+        Requires a Homebridge restart to apply. After enabling, commission this
+        bridge's Matter side from your controller app (pairing code in the
+        Homebridge UI bridge settings) before selecting Matter for a device.
+        Disabling keeps the commissioning info so it can be re-enabled without
+        re-pairing.
+      </p>
+    </div>
     <label class="checkbox">
       <input id="debug-mode" type="checkbox" />
       Enable debug logging
@@ -136,4 +152,4 @@
 
 <div id="toast-container" class="toast-container"></div>
 
-<script src="index.js"></script>
+<script src="index.js?v=1.7.6"></script>

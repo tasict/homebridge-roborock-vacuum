@@ -118,10 +118,78 @@ textarea {
   word-break: break-all;
 }
 
+.device-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.device-row span {
+  word-break: break-all;
+}
+
+.device-row select {
+  margin-top: 0;
+  width: auto;
+  min-width: 150px;
+}
+
 .skip-device-list {
   display: grid;
   gap: 10px;
   margin-top: 8px;
+}
+
+/* Second line inside a device row: the Matter scene-button toggle. */
+.scene-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.scene-toggle input[type="checkbox"] {
+  margin: 0;
+  width: auto;
+}
+
+.pairing-panel {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin: 6px 0 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--secondary);
+}
+
+.pairing-qr svg {
+  display: block;
+  width: 132px;
+  height: 132px;
+  padding: 6px;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.pairing-info {
+  display: grid;
+  gap: 4px;
+}
+
+.pairing-info p {
+  margin: 0;
+}
+
+.pairing-code {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
 }
 
 .skip-device-row {
