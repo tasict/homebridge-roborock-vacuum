@@ -29,6 +29,7 @@ const statusErrorClass = (defaultMessage) =>
 
 const MatterStatus = {
   MatterProtocolError,
+  isMatterProtocolError: (error) => error instanceof MatterProtocolError,
   Busy: statusErrorClass("Device is busy"),
   Timeout: statusErrorClass("Operation timed out"),
   ConstraintError: statusErrorClass("Value out of range"),

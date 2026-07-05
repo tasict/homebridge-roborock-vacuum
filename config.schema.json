@@ -35,6 +35,11 @@
         "type": "string",
         "description": "Roborock device IDs to publish over Matter instead of HAP. Requires Homebridge 2.x with Matter enabled; ignored otherwise."
       },
+      "matterSceneDevices": {
+        "title": "Matter Scene Button Device IDs",
+        "type": "string",
+        "description": "Matter device IDs whose Roborock scenes are bridged as Matter buttons. When omitted, scene buttons are enabled for every Matter device."
+      },
       "baseURL": {
         "type": "string",
         "default": "https://usiot.roborock.com",

@@ -72,20 +72,47 @@ Follow these steps to install the plugin:
 Use the Homebridge UI settings page to sign in and configure the plugin. Click **Load devices** to list the vacuums on your account, then choose a protocol for each one:
 
 - **HomeKit (HAP)** — the default. The vacuum is bridged to Apple Home as a fan-style accessory, as in previous versions.
-- **Matter** — the vacuum is published over Matter as a robotic vacuum cleaner, so it gets the native vacuum icon and controls in Apple Home (and works with Google Home, Alexa and SmartThings). See the requirements below.
+- **Matter (Beta)** — the vacuum is published over Matter as a robotic vacuum cleaner, so it gets the native vacuum icon and controls in Apple Home (and works with Google Home, Alexa and SmartThings). This is an experimental feature — read the [Matter support (Beta)](#matter-support-beta) section below before enabling it.
 - **Skip** — the vacuum is excluded entirely. You can also enter device IDs manually in the list below; manual entries are always skipped.
 
 When Homebridge restarts, each device is (re)published according to its selection. A device that was cached under a different protocol (or is now skipped) is removed from the old bridge first. **Changing a device's protocol re-creates the accessory**, so it loses its room and automation assignments in your home app and must be re-organized there.
 
-### Matter support
+### Matter support (Beta)
 
-Publishing over Matter requires **Homebridge 2.x with Matter enabled on the bridge this plugin runs on**. If the plugin runs on the main bridge, set `"matter": true` on the `bridge` block. If the plugin runs as a child bridge (the default when configured through the Homebridge UI), enable Matter on the child bridge instead — the plugin settings page shows an **"Enable Matter on this plugin's child bridge"** checkbox (writes `_bridge.matter` for you; a Homebridge restart is required to apply). The per-device Matter option only appears when the relevant bridge has Matter enabled. On Homebridge 1.x, or when Matter is disabled, any device set to Matter automatically falls back to HAP with a warning in the log, so nothing breaks.
+> ⚠️ **This is an experimental, lab-grade beta feature.** Matter support for robotic vacuums is still very new on the controller side. In particular, **Apple Home's compatibility is currently poor and not very stable**: the bridge is uncertified (Apple shows an "Uncertified Accessory" warning), the accessory appears as a generic **"Matter Accessory"** during pairing and must be named manually, room selection needs iOS 18.4 or later, and accessories can occasionally show "Not responding" or lose features after iOS updates. If you want the most reliable day-to-day experience, stay on **HomeKit (HAP)**. Choose Matter only if you want the native vacuum UI and room cleaning, and can live with rough edges.
 
-Matter support in Homebridge is still evolving and the bridge is uncertified, so some controllers may show a warning when you first pair it. Pairing is one-time per bridge — switching a device between HAP and Matter does **not** require re-pairing.
+#### What you get over Matter
 
-Each Matter device is published as its own Matter node with its **own pairing code** (not the bridge's code). After a restart, the plugin settings page shows the pairing QR code, the manual pairing code, and the commissioning status under every Matter-selected device — scan the QR code (or enter the manual code) in your controller app to add the vacuum.
+- The **native robot-vacuum accessory** in Apple Home (proper icon, start/stop, Siri) instead of the fan-style HAP accessory.
+- **Room cleaning**: the vacuum's named rooms are exposed through the Matter ServiceArea cluster. Pick rooms in the controller and start cleaning — selecting none (or all) runs a full clean. While a room clean runs, the controller shows the room currently being cleaned.
+- **Vacuum / Mop / Vacuum & Mop** clean modes, mapped to the Roborock suction and water-box settings (models without a water box only offer Vacuum).
+- **Battery, charging state and error reporting** (stuck, dust bin missing, dock unreachable, … are surfaced as Matter operational errors).
+- Every Roborock **scene** that targets the device becomes an on/off button (see step 5 below). When the same scene name exists on more than one Matter vacuum, the vacuum's name is appended to keep the buttons distinguishable.
+- **Identify** ("play sound to locate" in Apple Home) plays the vacuum's find-me sound.
 
-Over Matter the vacuum exposes **Vacuum / Mop / Vacuum & Mop** clean modes (mapped to the Roborock suction and water-box settings), and every Roborock **scene** that targets the device is published as an on/off button on the plugin's Matter bridge; when the same scene name exists on more than one Matter vacuum, the vacuum's name is appended to keep the buttons distinguishable. The Identify command ("play sound to locate" in Apple Home) plays the vacuum's find-me sound. Scene list changes are picked up on the next Homebridge restart.
+Run-mode semantics follow the Matter spec: setting the run mode to **Idle stops** the vacuum where it is; use the **dock/Go Home** control to send it back to the charger.
+
+#### Requirements
+
+- **Homebridge 2.x** with Matter enabled on the bridge this plugin runs on (Homebridge 1.x, or Matter disabled, silently falls back to HAP with a log warning — nothing breaks).
+- For room cleaning in Apple Home: **iOS 18.4 or later**, and rooms must be **named in the Roborock app** (unnamed rooms are not published; the room list loads shortly after Homebridge starts).
+
+#### Setup steps
+
+1. **Enable Matter on the bridge.** If the plugin runs as a child bridge (the default when configured through the Homebridge UI), tick **"Enable Matter on this plugin's child bridge"** on the plugin settings page (writes `_bridge.matter` for you). If it runs on the main bridge, set `"matter": true` on the `bridge` block in `config.json`. Restart Homebridge to apply.
+2. **Select the protocol.** On the plugin settings page press **Load devices** and set the vacuum's dropdown to **Matter (Beta)**, then restart Homebridge. The per-device Matter option only appears when the relevant bridge has Matter enabled.
+3. **Pair the vacuum.** Reopen the settings page — a pairing panel with a QR code, the manual pairing code and the commissioning status appears under every Matter-selected device (each device is its own Matter node with its **own** pairing code). In Apple Home choose **Add Accessory** and scan the QR code. Expect the **"Uncertified Accessory"** warning (press _Add Anyway_) and a generic **"Matter Accessory"** name — when asked for a name, type the device name shown in the pairing panel.
+4. **Try it.** Start/stop from the accessory tile, pick rooms (iOS 18.4+) before starting for a room clean, and use the dock control to send it home.
+5. **Optional — scene buttons.** The scene buttons live on the plugin's **own Matter bridge**, which is a separate pairing from the vacuum. Scroll to the bottom of the device list on the settings page and scan the additional bridge QR code to add them. Scene list changes are picked up on the next Homebridge restart.
+
+Pairing is one-time per node — switching a device between HAP and Matter later does **not** require re-pairing, but note that **changing a device's protocol re-creates the accessory**, so room and automation assignments in your home app are lost and must be re-organized.
+
+#### Known limitations
+
+- **Apple Home compatibility is immature** — see the warning at the top of this section. Treat this as a beta and expect to occasionally re-pair or restart Homebridge after controller/iOS updates.
+- The device always pairs as a generic, uncertified **"Matter Accessory"**: controllers look the bridge's test vendor ID up in the certification database and ignore the name the device advertises, so the name must be entered manually (the pairing panel shows what to type).
+- Scene buttons require the **separate bridge pairing** (step 5) and appear as plain on/off switches in the controller.
+- Multi-floor maps are not exposed (rooms come from the currently active map), and zone cleaning, consumables and dock controls are not available over Matter yet.
 
 ## Current Room → MQTT (optional telemetry)
 

@@ -2172,8 +2172,107 @@ class Roborock {
     await this.startCommand(duid, "app_stop", null);
   }
 
+  async app_pause(duid) {
+    await this.startCommand(duid, "app_pause", null);
+  }
+
   async app_charge(duid) {
     await this.startCommand(duid, "app_charge", null);
+  }
+
+  /**
+   * Named rooms for a device, from the segmentRoomNames cache populated by the
+   * periodic get_room_mapping poll. Used by the Matter ServiceArea cluster.
+   * Returns [{ segmentId, name }] sorted by segmentId; empty until the first
+   * successful room-mapping poll (rooms must be named in the Roborock app).
+   */
+  getSegmentRooms(duid) {
+    const rooms = (this.segmentRoomNames && this.segmentRoomNames[duid]) || {};
+
+    return Object.keys(rooms)
+      .map((segmentId) => ({
+        segmentId: Number(segmentId),
+        name: String(rooms[segmentId]),
+      }))
+      .filter((room) => Number.isFinite(room.segmentId))
+      .sort((a, b) => a.segmentId - b.segmentId);
+  }
+
+  /**
+   * Clean specific rooms (segments). segmentIds is an array of segment ids as
+   * reported by get_room_mapping. Used by the Matter ServiceArea cluster.
+   */
+  async app_segment_clean(duid, segmentIds, repeat = 1) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    if (!this.vacuums[duid]) {
+      this.log.warn(`app_segment_clean: unknown device ${duid}.`);
+      return;
+    }
+
+    const segments = (segmentIds || [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id));
+    if (segments.length === 0) {
+      this.log.warn(`app_segment_clean: no valid segment ids for ${duid}.`);
+      return;
+    }
+
+    await this.messageQueueHandler.sendRequest(duid, "app_segment_clean", [
+      { segments: segments, repeat: repeat },
+    ]);
+  }
+
+  /**
+   * Resume a paused segment (room) clean. app_start would restart a full
+   * clean instead, so the Matter Resume command uses this for segment cleans.
+   */
+  async resume_segment_clean(duid) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    if (!this.vacuums[duid]) {
+      this.log.warn(`resume_segment_clean: unknown device ${duid}.`);
+      return;
+    }
+
+    await this.messageQueueHandler.sendRequest(
+      duid,
+      "resume_segment_clean",
+      []
+    );
+  }
+
+  /**
+   * Motor capabilities used by the Matter clean-mode mapping. Values follow
+   * the V1 protocol shared by the supported models (fan 101-105, water
+   * 200-203); mopSupported comes from the per-model feature list so mop-less
+   * vacuums do not advertise mop modes.
+   */
+  getCleanModeCapabilities(duid) {
+    let mopSupported = true;
+
+    try {
+      const features = this.vacuums[duid]?.features?.getFeatureList?.();
+      if (features && typeof features.isWaterBoxSupported === "boolean") {
+        mopSupported = features.isWaterBoxSupported;
+      }
+    } catch (error) {
+      this.log.debug(`getCleanModeCapabilities: ${error}`);
+    }
+
+    return {
+      fanOff: 105,
+      fanDefault: 102,
+      waterOff: 200,
+      waterDefault: 202,
+      mopSupported: mopSupported,
+    };
   }
 
   async getStatus(duid, vacuum) {

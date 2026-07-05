@@ -81,6 +81,117 @@ class RoborockUiServer {
     return this.homebridgeStoragePath || process.cwd();
   }
 
+  /**
+   * Device-list cache so the settings page renders instantly instead of
+   * waiting for a Roborock cloud round-trip on every open. Written after a
+   * successful login (prefetch) and after every cloud fetch; keyed by
+   * account so switching accounts never shows another account's devices.
+   */
+  private getDeviceCachePath(): string {
+    return path.join(this.getStoragePath(), "roborock.uiDevices.json");
+  }
+
+  private deviceCacheKey(email?: string, baseURL?: string): string {
+    return `${(email || "").trim().toLowerCase()}@${baseURL || "usiot.roborock.com"}`;
+  }
+
+  private readDeviceCache(
+    email?: string,
+    baseURL?: string
+  ): { devices: unknown[]; updatedAt: number } | null {
+    try {
+      const raw = JSON.parse(
+        fs.readFileSync(this.getDeviceCachePath(), "utf8")
+      );
+      if (
+        raw &&
+        Array.isArray(raw.devices) &&
+        raw.account === this.deviceCacheKey(email, baseURL)
+      ) {
+        return { devices: raw.devices, updatedAt: raw.updatedAt || 0 };
+      }
+    } catch (error) {
+      // Missing or unreadable cache is simply a miss.
+    }
+    return null;
+  }
+
+  private writeDeviceCache(
+    email: string | undefined,
+    baseURL: string | undefined,
+    devices: unknown[]
+  ): void {
+    try {
+      fs.writeFileSync(
+        this.getDeviceCachePath(),
+        JSON.stringify(
+          {
+            account: this.deviceCacheKey(email, baseURL),
+            updatedAt: Date.now(),
+            devices,
+          },
+          null,
+          2
+        ),
+        "utf8"
+      );
+    } catch (error) {
+      // Cache is best-effort; the next page open just fetches live.
+    }
+  }
+
+  private clearDeviceCache(): void {
+    try {
+      if (fs.existsSync(this.getDeviceCachePath())) {
+        fs.unlinkSync(this.getDeviceCachePath());
+      }
+    } catch (error) {
+      // Ignore file removal errors.
+    }
+  }
+
+  /** Fetch the account's bridgeable vacuums from the Roborock cloud. */
+  private async fetchSupportedDevices(
+    email: string | undefined,
+    baseURL: string | undefined,
+    userData: unknown
+  ): Promise<unknown[]> {
+    const clientID = await this.getClientId();
+    const devices = await roborockHome.fetchDevices({
+      baseURL: baseURL || "usiot.roborock.com",
+      username: email,
+      clientID,
+      userData,
+    });
+    // Only list devices this plugin can bridge (same rule as
+    // platform.isSupportedDevice).
+    return (devices || []).filter(
+      (device: { model?: unknown }) =>
+        typeof device.model === "string" &&
+        device.model.startsWith("roborock.vacuum.")
+    );
+  }
+
+  /**
+   * Fire-and-forget device prefetch right after a successful login, so the
+   * first settings-page open renders from cache instead of waiting for the
+   * cloud.
+   */
+  private prefetchDeviceCache(
+    email: string | undefined,
+    baseURL: string | undefined,
+    userData: unknown
+  ): void {
+    void this.fetchSupportedDevices(email, baseURL, userData)
+      .then((devices) => this.writeDeviceCache(email, baseURL, devices))
+      .catch((error: any) => {
+        console.error(
+          "Device prefetch after login failed:",
+          error?.message || error
+        );
+      });
+  }
+
   private async getClientId(): Promise<string> {
     const storagePath = this.getStoragePath();
     if (storagePath) {
@@ -188,6 +299,7 @@ class RoborockUiServer {
 
     if (loginResult && loginResult.code === 200 && loginResult.data) {
       const encrypted = encryptSession(loginResult.data, this.getStoragePath());
+      this.prefetchDeviceCache(email, payload.baseURL, loginResult.data);
       return {
         ok: true,
         message: "Login completed and token saved.",
@@ -236,6 +348,7 @@ class RoborockUiServer {
 
     if (loginResult && loginResult.code === 200 && loginResult.data) {
       const encrypted = encryptSession(loginResult.data, this.getStoragePath());
+      this.prefetchDeviceCache(email, payload.baseURL, loginResult.data);
       return {
         ok: true,
         message: "Login successful. Token saved.",
@@ -273,6 +386,8 @@ class RoborockUiServer {
       // Ignore file removal errors.
     }
 
+    this.clearDeviceCache();
+
     return { ok: true, message: "Logged out. Token cleared." };
   }
 
@@ -280,9 +395,25 @@ class RoborockUiServer {
     email?: string;
     baseURL?: string;
     encryptedToken?: string;
+    refresh?: boolean;
   }) {
     if (!payload.encryptedToken) {
       return { ok: false, message: "Log in first to load your devices." };
+    }
+
+    // Cached-first: unless the UI asks for a refresh, answer from the cache
+    // written at login/last fetch so the page renders without a cloud
+    // round-trip. The UI refreshes in the background when it sees cached=true.
+    if (!payload.refresh) {
+      const cached = this.readDeviceCache(payload.email, payload.baseURL);
+      if (cached) {
+        return {
+          ok: true,
+          devices: cached.devices,
+          cached: true,
+          updatedAt: cached.updatedAt,
+        };
+      }
     }
 
     const userData = decryptSession(
@@ -297,21 +428,13 @@ class RoborockUiServer {
     }
 
     try {
-      const clientID = await this.getClientId();
-      const devices = await roborockHome.fetchDevices({
-        baseURL: payload.baseURL || "usiot.roborock.com",
-        username: payload.email,
-        clientID,
-        userData,
-      });
-      // Only list devices this plugin can bridge (same rule as
-      // platform.isSupportedDevice).
-      const supported = (devices || []).filter(
-        (device: { model?: unknown }) =>
-          typeof device.model === "string" &&
-          device.model.startsWith("roborock.vacuum.")
+      const supported = await this.fetchSupportedDevices(
+        payload.email,
+        payload.baseURL,
+        userData
       );
-      return { ok: true, devices: supported };
+      this.writeDeviceCache(payload.email, payload.baseURL, supported);
+      return { ok: true, devices: supported, cached: false };
     } catch (error: any) {
       console.error("Device list request failed:", error?.message || error);
       return {
@@ -360,10 +483,14 @@ class RoborockUiServer {
     try {
       const matterRoot = path.join(this.getStoragePath(), "matter");
       if (!fs.existsSync(matterRoot)) {
-        return { ok: true, pairings: [] };
+        return { ok: true, pairings: [], bridgePairing: null };
       }
 
       const pairings: unknown[] = [];
+      // The scene buttons are bridged accessories on the plugin's Matter
+      // bridge node — a separate node from the per-device external nodes,
+      // with its own pairing code the user must commission to see them.
+      let bridgePairing: Record<string, unknown> | null = null;
       for (const entry of fs.readdirSync(matterRoot, {
         withFileTypes: true,
       })) {
@@ -389,9 +516,14 @@ class RoborockUiServer {
           continue;
         }
 
+        const sceneNames: string[] = [];
         for (const accessory of accessories) {
           const duid = accessory?.context?.duid;
           if (accessory?.plugin !== "homebridge-roborock-vacuum" || !duid) {
+            continue;
+          }
+          if (accessory?.context?.sceneId !== undefined) {
+            sceneNames.push(String(accessory.displayName));
             continue;
           }
           pairings.push({
@@ -407,9 +539,23 @@ class RoborockUiServer {
             }),
           });
         }
+
+        if (sceneNames.length > 0 && !bridgePairing) {
+          bridgePairing = {
+            sceneNames,
+            qrCode: commissioning.qrCode,
+            manualPairingCode: commissioning.manualPairingCode,
+            commissioned: Boolean(commissioning.commissioned),
+            fabricCount: commissioning.fabricCount || 0,
+            qrSvg: await QRCode.toString(commissioning.qrCode, {
+              type: "svg",
+              margin: 1,
+            }),
+          };
+        }
       }
 
-      return { ok: true, pairings };
+      return { ok: true, pairings, bridgePairing };
     } catch (error: any) {
       return {
         ok: false,

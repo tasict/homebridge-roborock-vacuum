@@ -27,8 +27,11 @@ const elements = {
 let matterSupported = false;
 // Device IDs the user selected to publish over Matter.
 const matterSelected = new Set();
+// Devices whose Roborock scenes are bridged as Matter buttons.
+const matterSceneSelected = new Set();
 // Per-device Matter pairing info (duid -> entry), fetched lazily.
 let matterPairings = null;
+let matterBridgePairing = null;
 
 // Homebridge accepts `matter: true` (legacy shorthand) or a MatterConfig
 // object where a missing `enabled` means enabled.
@@ -162,6 +165,16 @@ async function loadConfig() {
   renderSkipDevices(config.skipDevices);
   matterSelected.clear();
   parseDeviceIds(config.matterDevices).forEach((id) => matterSelected.add(id));
+  matterSceneSelected.clear();
+  if (config.matterSceneDevices === undefined) {
+    // Legacy config without the option: scene buttons were always bridged,
+    // so default every Matter device to enabled.
+    matterSelected.forEach((id) => matterSceneSelected.add(id));
+  } else {
+    parseDeviceIds(config.matterSceneDevices).forEach((id) =>
+      matterSceneSelected.add(id)
+    );
+  }
   elements.debugMode.checked = Boolean(config.debugMode);
 
   const roomMqtt = config.currentRoomMqtt || {};
@@ -209,6 +222,10 @@ function getDebugMode() {
 
 function getMatterDevices() {
   return [...matterSelected].join(",");
+}
+
+function getMatterSceneDevices() {
+  return [...matterSceneSelected].join(",");
 }
 
 async function loadMatterStatus() {
@@ -379,11 +396,15 @@ function setDeviceProtocol(deviceId, protocol) {
   const skipped = getSkipDeviceSet();
   skipped.delete(deviceId);
   matterSelected.delete(deviceId);
+  matterSceneSelected.delete(deviceId);
 
   if (protocol === "skip") {
     skipped.add(deviceId);
   } else if (protocol === "matter") {
     matterSelected.add(deviceId);
+    // Scene buttons default to enabled when a device is switched to Matter;
+    // the per-device checkbox can turn them off.
+    matterSceneSelected.add(deviceId);
   }
 
   renderSkipDevices([...skipped]);
@@ -408,6 +429,7 @@ async function fetchMatterPairings() {
     result.pairings.forEach((entry) => {
       map[entry.duid] = entry;
     });
+    matterBridgePairing = result.bridgePairing || null;
   }
   matterPairings = map;
   return map;
@@ -469,10 +491,87 @@ async function renderPairingPanels() {
       : "Not paired yet. In your controller app (e.g. Apple Home) choose " +
         "Add Accessory and scan the QR code or enter the manual code.";
 
-    info.append(codeLabel, code, status);
+    // Controllers look the bridge's test vendor ID up in the certification
+    // database and fall back to a generic label, ignoring the name the
+    // device advertises — tell the user what to type in the naming step.
+    const nameHint = document.createElement("p");
+    nameHint.className = "help";
+    nameHint.append(
+      "During pairing the controller shows this device as generic " +
+        "“Matter Accessory” (uncertified-bridge limitation). " +
+        "When asked for a name, enter: "
+    );
+    const suggestedName = document.createElement("strong");
+    suggestedName.textContent = pairing.name || "";
+    nameHint.appendChild(suggestedName);
+
+    info.append(codeLabel, code, status, nameHint);
     panel.append(qr, info);
     row.after(panel);
   });
+
+  renderSceneBridgePanel();
+}
+
+// The Roborock scene buttons are bridged accessories on the plugin's own
+// Matter bridge — a separate Matter node from the per-vacuum nodes above,
+// with its own pairing code. Without pairing it, the scene buttons never
+// appear in the controller, so surface its QR code here too.
+function renderSceneBridgePanel() {
+  const pairing = matterBridgePairing;
+  if (!pairing || !pairing.qrSvg) {
+    return;
+  }
+
+  // No point offering the bridge pairing when no Matter device currently
+  // has its scene buttons enabled.
+  const anySceneEnabled = [...matterSelected].some((id) =>
+    matterSceneSelected.has(id)
+  );
+  if (!anySceneEnabled) {
+    return;
+  }
+
+  const panel = document.createElement("div");
+  panel.className = "pairing-panel";
+
+  const qr = document.createElement("div");
+  qr.className = "pairing-qr";
+  qr.innerHTML = pairing.qrSvg;
+
+  const info = document.createElement("div");
+  info.className = "pairing-info";
+
+  const title = document.createElement("p");
+  title.className = "help";
+  const sceneNames = Array.isArray(pairing.sceneNames)
+    ? pairing.sceneNames.join(", ")
+    : "";
+  title.textContent =
+    "Scene buttons (" +
+    sceneNames +
+    ") are published on the plugin's own Matter bridge — a separate " +
+    "pairing from the vacuum above.";
+
+  const codeLabel = document.createElement("p");
+  codeLabel.className = "help";
+  codeLabel.textContent = "Matter manual pairing code";
+  const code = document.createElement("p");
+  code.className = "pairing-code";
+  code.textContent = pairing.manualPairingCode || "";
+
+  const status = document.createElement("p");
+  status.className = "help";
+  status.textContent = pairing.commissioned
+    ? "Paired with " +
+      pairing.fabricCount +
+      " controller(s). Scan the QR code to add it to another controller."
+    : "Not paired yet. Scan the QR code (or enter the manual code) to add " +
+      "the scene buttons to your controller.";
+
+  info.append(title, codeLabel, code, status);
+  panel.append(qr, info);
+  elements.discoveredDevices.appendChild(panel);
 }
 
 function renderDevicesMessage(text) {
@@ -507,7 +606,7 @@ function renderDiscoveredDevices(devices) {
     if (matterSupported || current === "matter") {
       options.push({
         value: "matter",
-        text: matterSupported ? "Matter" : "Matter (unavailable)",
+        text: matterSupported ? "Matter (Beta)" : "Matter (Beta, unavailable)",
       });
     }
     options.push({ value: "skip", text: "Skip" });
@@ -519,11 +618,39 @@ function renderDiscoveredDevices(devices) {
       select.appendChild(option);
     });
     select.value = current;
-    select.addEventListener("change", () =>
-      setDeviceProtocol(device.duid, select.value)
-    );
 
-    row.append(label, select);
+    // Per-device toggle for bridging the Roborock scenes as Matter buttons;
+    // only meaningful (and visible) while the device is published over Matter.
+    const sceneToggle = document.createElement("label");
+    sceneToggle.className = "scene-toggle";
+    const sceneCheckbox = document.createElement("input");
+    sceneCheckbox.type = "checkbox";
+    sceneCheckbox.checked = matterSceneSelected.has(device.duid);
+    sceneCheckbox.addEventListener("change", () => {
+      if (sceneCheckbox.checked) {
+        matterSceneSelected.add(device.duid);
+      } else {
+        matterSceneSelected.delete(device.duid);
+      }
+      saveCredentials();
+      renderPairingPanels().catch(() => {
+        // Best-effort; the checkbox state is already saved.
+      });
+      showToast(
+        "warning",
+        "Scene button setting saved. Restart Homebridge to apply."
+      );
+    });
+    sceneToggle.append(sceneCheckbox, " Bridge scene buttons over Matter");
+    sceneToggle.style.display = current === "matter" ? "" : "none";
+
+    select.addEventListener("change", () => {
+      setDeviceProtocol(device.duid, select.value);
+      sceneCheckbox.checked = matterSceneSelected.has(device.duid);
+      sceneToggle.style.display = select.value === "matter" ? "" : "none";
+    });
+
+    row.append(label, select, sceneToggle);
     elements.discoveredDevices.appendChild(row);
   });
 
@@ -532,7 +659,7 @@ function renderDiscoveredDevices(devices) {
   });
 }
 
-async function loadDevices() {
+async function loadDevices(forceRefresh) {
   if (
     !window.homebridge ||
     typeof window.homebridge.getPluginConfig !== "function"
@@ -555,9 +682,15 @@ async function loadDevices() {
       email: getEmail(),
       baseURL: getBaseUrl(),
       encryptedToken,
+      refresh: Boolean(forceRefresh),
     });
     if (result.ok) {
       renderDiscoveredDevices(result.devices);
+      // Cached answer: render instantly, then refresh from the cloud in the
+      // background so newly added/removed vacuums still show up.
+      if (result.cached) {
+        refreshDevicesInBackground(encryptedToken, result.devices);
+      }
     } else {
       renderDevicesMessage(
         "Could not load devices. Press Load devices to retry."
@@ -567,6 +700,30 @@ async function loadDevices() {
   } finally {
     elements.loadDevices.disabled = false;
   }
+}
+
+function refreshDevicesInBackground(encryptedToken, cachedDevices) {
+  request("/devices/list", {
+    email: getEmail(),
+    baseURL: getBaseUrl(),
+    encryptedToken,
+    refresh: true,
+  })
+    .then((result) => {
+      if (!result.ok || !Array.isArray(result.devices)) {
+        return; // Silent: the cached list stays on screen.
+      }
+      const key = (devices) =>
+        JSON.stringify(
+          (devices || []).map((d) => [d.duid, d.name, d.model, d.shared])
+        );
+      if (key(result.devices) !== key(cachedDevices)) {
+        renderDiscoveredDevices(result.devices);
+      }
+    })
+    .catch(() => {
+      // Silent: the cached list stays on screen.
+    });
 }
 
 async function saveCredentials() {
@@ -585,6 +742,9 @@ async function saveCredentials() {
     baseURL,
     skipDevices,
     matterDevices: matterDevices || undefined,
+    // Always written as a string (possibly empty): an absent key means the
+    // legacy "scenes enabled for every Matter device" default.
+    matterSceneDevices: getMatterSceneDevices(),
     debugMode,
   });
 }
@@ -752,7 +912,8 @@ function init() {
     addSkipDeviceRow();
   });
   elements.loadDevices.addEventListener("click", () => {
-    loadDevices().catch(() => {
+    // Explicit button press always bypasses the cache.
+    loadDevices(true).catch(() => {
       showToast("error", "Failed to load devices.");
     });
   });

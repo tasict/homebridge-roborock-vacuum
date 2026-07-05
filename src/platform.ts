@@ -103,6 +103,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   public platformConfig: RoborockPlatformConfig;
   private readonly skippedDeviceIds: Set<string>;
   private readonly matterDeviceIds: Set<string>;
+  // Devices whose scenes are bridged as Matter buttons. null means the
+  // option is absent from the config (legacy) — enabled for every device.
+  private readonly matterSceneDeviceIds: Set<string> | null;
 
   /**
    * This constructor is where you should parse the user config
@@ -127,6 +130,10 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     this.matterDeviceIds = new Set(
       parseDeviceIds(this.platformConfig.matterDevices)
     );
+    this.matterSceneDeviceIds =
+      this.platformConfig.matterSceneDevices === undefined
+        ? null
+        : new Set(parseDeviceIds(this.platformConfig.matterSceneDevices));
 
     // Initialise logging utility
     this.log = new RoborockPlatformLogger(
@@ -260,11 +267,18 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         // Scenes load asynchronously; sync the Matter scene buttons once
         // they are available (or when they change).
         self.syncMatterScenes();
-      } else {
-        const matterVacuum = self.matterVacuums.get(id);
-        if (matterVacuum) {
-          const deviceData = homeData?.deviceStatus || homeData;
-          matterVacuum.updateFromRoborockData(deviceData);
+      } else if (id === "CloudMessage" || id === "LocalMessage") {
+        // Transport messages carry no device id, so fan device-status
+        // payloads out to every Matter vacuum (same as the HAP accessories
+        // above); field-level guards make foreign payloads a no-op.
+        const payload = Array.isArray(homeData) ? homeData[0] : homeData;
+        if (payload && typeof payload === "object") {
+          for (const [duid, matterVacuum] of self.matterVacuums) {
+            matterVacuum.updateFromRoborockData(payload);
+            matterVacuum.updateSupportedAreas(
+              self.roborockAPI.getSegmentRooms?.(duid) ?? []
+            );
+          }
         }
       }
     });
@@ -547,6 +561,13 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         });
       }
 
+      // Collect the scene buttons only after every Matter device is known,
+      // so duplicate-scene-name detection sees the complete scene list
+      // regardless of the order devices were discovered in.
+      for (const [duid, device] of self.matterDeviceInfo) {
+        self.collectMatterSceneAccessories(device, duid, matterToRegister);
+      }
+
       // Register all newly discovered Matter accessories in a single batch.
       if (
         matterToRegister.length > 0 &&
@@ -564,6 +585,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
 
         for (const vacuum of self.matterVacuums.values()) {
           vacuum.refreshCleanModes();
+          vacuum.refreshServiceArea();
         }
       }
 
@@ -669,16 +691,28 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     this.matterAccessories.set(uuid, accessory);
     toRegister.push(accessory);
 
-    this.collectMatterSceneAccessories(device, duid, toRegister);
-
     const deviceData = this.roborockAPI.getVacuumDeviceData(duid);
     if (deviceData && deviceData.deviceStatus) {
       vacuum.updateFromRoborockData(deviceData.deviceStatus);
     }
   }
 
-  /** Enabled Roborock scenes targeting the device (empty when unknown). */
+  /** Whether the device's scenes should be bridged as Matter buttons. */
+  private matterSceneButtonsEnabled(duid: string): boolean {
+    return (
+      this.matterSceneDeviceIds === null || this.matterSceneDeviceIds.has(duid)
+    );
+  }
+
+  /**
+   * Enabled Roborock scenes targeting the device (empty when unknown or
+   * when scene buttons are disabled for the device — the collect pass then
+   * unregisters any previously cached buttons).
+   */
   private getMatterScenes(duid: string): any[] {
+    if (!this.matterSceneButtonsEnabled(duid)) {
+      return [];
+    }
     try {
       const scenes = this.roborockAPI.getScenesForDevice(duid) || [];
       return scenes.filter((scene: any) => scene.enabled !== false);
