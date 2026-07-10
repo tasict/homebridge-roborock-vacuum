@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.0.1
+
+Stability and security hardening release based on a full plugin vulnerability scan. No new features, no configuration changes — updating is strongly recommended, especially on low-power hosts (NAS, Raspberry Pi).
+
+- **Fix (crash)**: An MQTT connection that failed to establish within 30 seconds crashed the whole Homebridge process (a timer called a method that does not exist); it now logs a warning and keeps retrying in the background
+- **Fix (crash)**: Status updates no longer abort mid-processing while the vacuum is cleaning (calls to undefined map-updater functions were throwing on every `get_status` poll), so state and battery keep updating during a clean
+- **Performance**: Startup no longer blocks the event loop with synchronous RSA-2048 key generation for every vacuum — the keypair (only used for photo requests) is now generated once, on demand, using fast native crypto. On NAS-class hardware this removes multi-second (up to minute-long) Homebridge freezes at startup
+- **Performance**: Device data (HomeData) is parsed once and cached instead of being re-parsed on every request and every HomeKit read — significantly lower CPU and fewer "Not Responding" moments in the Home app with multiple devices
+- **Performance**: Map payloads are decompressed asynchronously instead of blocking the message loop
+- **Fix (memory)**: Polling timers now keep their real handles — they are properly stopped when a device goes offline or the service stops, and can no longer stack up duplicates (previously they could never be cleared and multiplied on every reconnect)
+- **Fix (memory)**: The local TCP receive buffer is bounded (8 MB per frame / 16 MB total) and the connection resets on corrupt framing, instead of buffering bad data forever
+- **Fix (leak)**: Local TCP reconnect timers are cancellable and stop on shutdown; photo transfer buffers no longer leak when a transfer is interrupted; the UDP discovery socket is created per discovery run; the cloud MQTT connection is closed on service stop
+- **Fix**: TCP connection failures no longer mislabel every device as a remote (cloud-only) device
+- **Fix**: Stale HomeKit scene switches are now actually removed when scenes are deleted
+- **Fix**: The periodic MQTT reconnect now runs every 3 hours as documented (was every hour)
+- **Security**: The persisted Roborock session file (`roborock.UserData`, contains the cloud token) is now written with owner-only permissions (0600)
+- **Security/maintenance**: Removed 10 unused dependencies (`express`, `node-forge`, `abstract-things`, `tinkerhub-discovery`, `yargs`, `deep-equal`, `chalk`, `debug`, `semver`, `rxjs`) — smaller install and attack surface
+
 ## 2.0.0
 
 - **New Feature**: Matter protocol support (Beta)
