@@ -3,7 +3,7 @@
 const crypto = require("crypto");
 const CRC32 = require("crc-32");
 const Parser = require("binary-parser").Parser;
-const forge = require("node-forge");
+const { getRsaKeys } = require("./rsaKeys");
 
 let seq = 1;
 let random = 4711; // Should be initialized with a number 0 - 1999?
@@ -31,33 +31,8 @@ class message {
   constructor(adapter) {
     this.adapter = adapter;
     this.missingLocalKeyWarnings = new Set();
-
-    const keypair = forge.pki.rsa.generateKeyPair(2048);
-    this.keys = {
-      public: { n: null, e: null },
-      private: {
-        n: null,
-        e: null,
-        d: null,
-        p: null,
-        q: null,
-        dmp1: null,
-        dmq1: null,
-        coeff: null,
-      },
-    };
-
-    // Convert the keys to the desired format
-    this.keys.public.n = keypair.publicKey.n.toString(16);
-    this.keys.public.e = keypair.publicKey.e.toString(16);
-    this.keys.private.n = keypair.privateKey.n.toString(16);
-    this.keys.private.e = keypair.privateKey.e.toString(16);
-    this.keys.private.d = keypair.privateKey.d.toString(16);
-    this.keys.private.p = keypair.privateKey.p.toString(16);
-    this.keys.private.q = keypair.privateKey.q.toString(16);
-    this.keys.private.dmp1 = keypair.privateKey.dP.toString(16);
-    this.keys.private.dmq1 = keypair.privateKey.dQ.toString(16);
-    this.keys.private.coeff = keypair.privateKey.qInv.toString(16);
+    // The photo RSA keypair is shared process-wide and generated lazily on
+    // the first photo request — see lib/rsaKeys.js.
   }
 
   async buildPayload(
@@ -75,10 +50,11 @@ class message {
     // this.adapter.log.debug("sendRequest started with: " + requestId);
 
     if (photo) {
+      const keys = await getRsaKeys();
       params.endpoint = endpoint;
       params.security = {
         cipher_suite: 0,
-        pub_key: this.keys.public,
+        pub_key: keys.public,
       };
     }
 
@@ -139,7 +115,8 @@ class message {
     // and a stable connect_nonce without disturbing the module-global counters used by
     // data messages.
     if (protocol == 0 || protocol == 1) {
-      const headerSeq = (options.seq !== undefined ? options.seq : currentSeq) >>> 0;
+      const headerSeq =
+        (options.seq !== undefined ? options.seq : currentSeq) >>> 0;
       const headerRandom =
         (options.random !== undefined ? options.random : currentRandom) >>> 0;
       const msg = Buffer.alloc(21);

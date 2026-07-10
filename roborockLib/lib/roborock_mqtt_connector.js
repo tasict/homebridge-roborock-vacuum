@@ -4,7 +4,6 @@ const mqtt = require("mqtt");
 const crypto = require("crypto");
 const Parser = require("binary-parser").Parser;
 const zlib = require("zlib");
-const forge = require("node-forge");
 
 const protocol301Parser = new Parser()
   .endianess("little")
@@ -32,41 +31,15 @@ let client;
 let endpoint;
 let rriot;
 
-let photoGzipChunks = [];
-let photoChunkID = 0;
-
 class roborock_mqtt_connector {
   constructor(adapter) {
     this.adapter = adapter;
 
     this.connected = false;
-
-    const keypair = forge.pki.rsa.generateKeyPair(2048);
-    this.keys = {
-      public: { n: null, e: null },
-      private: {
-        n: null,
-        e: null,
-        d: null,
-        p: null,
-        q: null,
-        dmp1: null,
-        dmq1: null,
-        coeff: null,
-      },
-    };
-
-    // Convert the keys to the desired format
-    this.keys.public.n = keypair.publicKey.n.toString(16);
-    this.keys.public.e = keypair.publicKey.e.toString(16);
-    this.keys.private.n = keypair.privateKey.n.toString(16);
-    this.keys.private.e = keypair.privateKey.e.toString(16);
-    this.keys.private.d = keypair.privateKey.d.toString(16);
-    this.keys.private.p = keypair.privateKey.p.toString(16);
-    this.keys.private.q = keypair.privateKey.q.toString(16);
-    this.keys.private.dmp1 = keypair.privateKey.dP.toString(16);
-    this.keys.private.dmq1 = keypair.privateKey.dQ.toString(16);
-    this.keys.private.coeff = keypair.privateKey.qInv.toString(16);
+    // Photo gzip reassembly state. Previously module-global (shared across
+    // devices and leaked when the second chunk never arrived).
+    this.photoGzipChunks = [];
+    this.photoChunkID = 0;
   }
 
   async initUser(userdata) {
@@ -84,8 +57,14 @@ class roborock_mqtt_connector {
   }
 
   async initMQTT_Subscribe() {
-    const timeout = setTimeout(async () => {
-      this.adapter.restart();
+    // If the connection is not up within 30s, just log it. The mqtt client
+    // keeps reconnecting on its own; calling into the adapter here used to
+    // throw (restart() does not exist) and crash the whole process.
+    const timeout = setTimeout(() => {
+      this.adapter.log.warn(
+        "MQTT connection not established within 30 seconds. " +
+          "Will keep retrying in the background."
+      );
     }, 30000);
 
     await client.on("connect", (result) => {
@@ -278,29 +257,39 @@ class roborock_mqtt_connector {
             if (this.adapter.pendingRequests.has(photoData.id)) {
               this.adapter.log.debug(`First photo gzip chunk detected!`);
 
-              photoGzipChunks.push(data.payload.slice(56));
-              photoChunkID = photoData.id;
+              this.photoGzipChunks = [data.payload.slice(56)];
+              this.photoChunkID = photoData.id;
             }
           }
         } else if (data.protocol == 301) {
           const data2 = protocol301Parser.parse(data.payload.subarray(0, 24));
 
-          if (data.seq == 2 && photoGzipChunks != [] && photoChunkID != 0) {
+          if (
+            data.seq == 2 &&
+            this.photoGzipChunks.length > 0 &&
+            this.photoChunkID != 0
+          ) {
             this.adapter.log.debug(`Second photo gzip chunk detected!`);
-            photoGzipChunks.push(data.payload);
+            this.photoGzipChunks.push(data.payload);
 
-            if (this.adapter.pendingRequests.has(photoChunkID)) {
-              const { resolve, timeout } =
-                this.adapter.pendingRequests.get(photoChunkID);
+            if (this.adapter.pendingRequests.has(this.photoChunkID)) {
+              const { resolve, timeout } = this.adapter.pendingRequests.get(
+                this.photoChunkID
+              );
               this.adapter.clearTimeout(timeout);
-              this.adapter.pendingRequests.delete(photoChunkID);
+              this.adapter.pendingRequests.delete(this.photoChunkID);
 
-              const finalPhotoGzip = Buffer.concat(photoGzipChunks);
+              const finalPhotoGzip = Buffer.concat(this.photoGzipChunks);
 
-              photoGzipChunks = [];
-              photoChunkID = 0;
+              this.photoGzipChunks = [];
+              this.photoChunkID = 0;
 
               resolve(finalPhotoGzip);
+            } else {
+              // The request already timed out; drop the buffered chunks so
+              // they cannot accumulate.
+              this.photoGzipChunks = [];
+              this.photoChunkID = 0;
             }
           } else {
             if (data.payload.subarray(0, 8) == "ROBOROCK") {
@@ -327,25 +316,31 @@ class roborock_mqtt_connector {
                 this.adapter.nonce,
                 iv
               );
-              let decrypted = Buffer.concat([
+              const decrypted = Buffer.concat([
                 decipher.update(data.payload.subarray(24)),
                 decipher.final(),
               ]);
-              decrypted = zlib.gunzipSync(decrypted);
-              // this.adapter.log.debug("raw 301: " + decrypted);
+              // Map payloads can be large; decompress off the event loop.
+              zlib.gunzip(decrypted, (error, decompressed) => {
+                if (error) {
+                  this.adapter.log.error(
+                    `Failed to gunzip protocol 301 payload for ${duid}: ${error.message}`
+                  );
+                  return;
+                }
 
-              if (this.adapter.pendingRequests.has(data2.id)) {
-                const { resolve, timeout } = this.adapter.pendingRequests.get(
-                  data2.id
-                );
-                this.adapter.clearTimeout(timeout);
-                this.adapter.pendingRequests.delete(data2.id);
-                // this.adapter.log.debug("protocol 301 OK check: " + JSON.stringify(decrypted));
-                this.adapter.log.debug(
-                  `Cloud message with protocol 301 and id ${data2.id} received.`
-                );
-                resolve(decrypted);
-              }
+                if (this.adapter.pendingRequests.has(data2.id)) {
+                  const { resolve, timeout } = this.adapter.pendingRequests.get(
+                    data2.id
+                  );
+                  this.adapter.clearTimeout(timeout);
+                  this.adapter.pendingRequests.delete(data2.id);
+                  this.adapter.log.debug(
+                    `Cloud message with protocol 301 and id ${data2.id} received.`
+                  );
+                  resolve(decompressed);
+                }
+              });
             }
           }
         } else if (data.protocol == 500) {
@@ -427,6 +422,19 @@ class roborock_mqtt_connector {
     return this.connected;
   }
 
+  // Tear down the cloud MQTT connection on service stop so no reconnect
+  // loop or keepalive timer outlives the adapter.
+  disconnectClient() {
+    if (client) {
+      try {
+        client.end(true);
+      } catch (error) {
+        this.adapter.log.debug(`MQTT disconnect failed: ${error.message}`);
+      }
+      this.connected = false;
+    }
+  }
+
   async reconnectClient() {
     if (client) {
       try {
@@ -448,24 +456,6 @@ class roborock_mqtt_connector {
 
   md5bin(str) {
     return crypto.createHash("md5").update(str).digest();
-  }
-
-  decryptWithPrivateKey(privateKeyPem, encryptedData) {
-    const privateKey = crypto.createPrivateKey({
-      key: privateKeyPem,
-      format: "pem",
-      type: "pkcs8",
-    });
-
-    const decryptedData = crypto.privateDecrypt(
-      {
-        key: privateKey,
-        padding: crypto.constants.RSA_PKCS1_PADDING,
-      },
-      encryptedData
-    );
-
-    return decryptedData;
   }
 }
 

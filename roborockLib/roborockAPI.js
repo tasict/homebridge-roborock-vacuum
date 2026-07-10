@@ -5,9 +5,6 @@ const fs = require("fs");
 const os = require("os");
 const axios = require("axios");
 const crypto = require("crypto");
-const express = require("express");
-const { debug } = require("console");
-const { get } = require("http");
 
 const roborockAuth = require("./lib/roborockAuth");
 
@@ -22,8 +19,6 @@ const deviceFeatures = require("./lib/deviceFeatures").deviceFeatures;
 const messageQueueHandler =
   require("./lib/messageQueueHandler").messageQueueHandler;
 const mqtt = require("mqtt");
-
-let socketServer, webserver;
 
 const dockingStationStates = [
   "cleanFluidStatus",
@@ -63,6 +58,11 @@ class Roborock {
 
     this.objects = {};
     this.states = {};
+
+    // Parsed-once cache of the HomeData JSON string. Every hot path
+    // (getRobotVersion, onlineChecker, device lookups) reads this instead of
+    // re-JSON.parsing the whole document per call. Invalidated on write.
+    this.homedataCache = null;
 
     this.idCounter = 0;
     this.nonce = crypto.randomBytes(16);
@@ -189,10 +189,18 @@ class Roborock {
       if (id == "UserData" || id == "clientID") {
         const persistPath = this.getPersistPath(id);
         fs.mkdirSync(path.dirname(persistPath), { recursive: true });
-        fs.writeFileSync(persistPath, JSON.stringify(state, null, 2, "utf8"));
+        // 0600: UserData contains the cloud token and rriot secrets.
+        fs.writeFileSync(persistPath, JSON.stringify(state, null, 2), {
+          encoding: "utf8",
+          mode: 0o600,
+        });
       }
 
       this.states[id] = state;
+
+      if (id == "HomeData") {
+        this.homedataCache = null; // re-parsed lazily on next read
+      }
 
       if (this.deviceNotify && (id == "HomeData" || id == "CloudMessage")) {
         this.deviceNotify(id, state);
@@ -208,10 +216,10 @@ class Roborock {
             this.forceTemporaryPersistPath(),
             `roborock.${id}`
           );
-          fs.writeFileSync(
-            fallbackPath,
-            JSON.stringify(state, null, 2, "utf8")
-          );
+          fs.writeFileSync(fallbackPath, JSON.stringify(state, null, 2), {
+            encoding: "utf8",
+            mode: 0o600,
+          });
           this.states[id] = state;
           this.log.warn(
             `Write access denied for persistent state. Saved '${id}' in temporary path '${fallbackPath}'.`
@@ -255,6 +263,36 @@ class Roborock {
 
   subscribeStates(id) {
     this.log.debug(`subscribeStates: ${id}`);
+  }
+
+  // Parsed HomeData object (or null). Parses the stored JSON string at most
+  // once per update instead of on every access.
+  getParsedHomeData() {
+    if (this.homedataCache) {
+      return this.homedataCache;
+    }
+
+    const homedata = this.states["HomeData"];
+    if (homedata && typeof homedata.val == "string") {
+      try {
+        this.homedataCache = JSON.parse(homedata.val);
+      } catch (error) {
+        this.log.error(`Failed to parse HomeData: ${error.message}`);
+        this.homedataCache = null;
+      }
+    }
+
+    return this.homedataCache;
+  }
+
+  // All devices from HomeData (owned + received/shared), never null.
+  getAllHomeDevices() {
+    const homedata = this.getParsedHomeData();
+    if (!homedata) {
+      return [];
+    }
+
+    return (homedata.devices || []).concat(homedata.receivedDevices || []);
   }
 
   getPersistPath(id) {
@@ -321,7 +359,10 @@ class Roborock {
 
     try {
       fs.mkdirSync(path.dirname(persistPath), { recursive: true });
-      fs.writeFileSync(persistPath, JSON.stringify(state, null, 2, "utf8"));
+      fs.writeFileSync(persistPath, JSON.stringify(state, null, 2), {
+        encoding: "utf8",
+        mode: 0o600,
+      });
       this.log.info(
         `Migrated legacy '${id}' state file from '${legacyPath}' to '${persistPath}'.`
       );
@@ -541,7 +582,7 @@ class Roborock {
             this.log.debug(`Reconnecting after 3 hours!`);
 
             await this.rr_mqtt_connector.reconnectClient();
-          }, 3600 * 1000);
+          }, 10800 * 1000);
 
           this.processScene(scene);
 
@@ -826,38 +867,64 @@ class Roborock {
 
       const robotModel = this.getProductAttribute(duid, "model");
 
-      this.vacuums[duid].mainUpdateInterval = () =>
-        this.setInterval(
-          this.updateDataMinimumData.bind(this),
-          this.updateInterval * 1000,
-          duid,
-          this.vacuums[duid],
-          robotModel
-        );
-
       if (device.online) {
-        this.log.debug(`${duid} online. Starting mainUpdateInterval.`);
-        this.vacuums[duid].mainUpdateInterval(); // actually start mainUpdateInterval()
-      }
-
-      this.vacuums[duid].getStatusIntervall = () =>
-        this.setInterval(
-          this.getStatus.bind(this),
-          1000,
-          duid,
-          this.vacuums[duid],
-          robotModel
-        );
-
-      if (device.online) {
-        this.log.debug(`${duid} online. Starting getStatusIntervall.`);
-        this.vacuums[duid].getStatusIntervall(); // actually start getStatusIntervall()
+        this.log.debug(`${duid} online. Starting update intervals.`);
+        this.startDeviceIntervals(duid);
       }
 
       await this.updateDataExtraData(duid, this.vacuums[duid]);
       await this.updateDataMinimumData(duid, this.vacuums[duid], robotModel);
 
       await this.vacuums[duid].getCleanSummary(duid);
+    }
+  }
+
+  // Start the per-device polling intervals, keeping the real timer handles so
+  // they can actually be cleared again. Idempotent: an already-running
+  // interval is never duplicated (the previous implementation stored factory
+  // functions instead of handles, so intervals could neither be stopped nor
+  // deduplicated and stacked up on every online transition).
+  startDeviceIntervals(duid) {
+    if (!this.hasInitializedVacuum(duid)) {
+      return;
+    }
+
+    const vacuum = this.vacuums[duid];
+    const robotModel = this.getProductAttribute(duid, "model");
+
+    if (!vacuum.mainUpdateIntervalHandle) {
+      vacuum.mainUpdateIntervalHandle = this.setInterval(
+        this.updateDataMinimumData.bind(this),
+        this.updateInterval * 1000,
+        duid,
+        vacuum,
+        robotModel
+      );
+    }
+
+    if (!vacuum.getStatusIntervalHandle) {
+      vacuum.getStatusIntervalHandle = this.setInterval(
+        this.getStatus.bind(this),
+        1000,
+        duid
+      );
+    }
+  }
+
+  stopDeviceIntervals(duid) {
+    const vacuum = this.vacuums[duid];
+    if (!vacuum) {
+      return;
+    }
+
+    if (vacuum.mainUpdateIntervalHandle) {
+      this.clearInterval(vacuum.mainUpdateIntervalHandle);
+      vacuum.mainUpdateIntervalHandle = null;
+    }
+
+    if (vacuum.getStatusIntervalHandle) {
+      this.clearInterval(vacuum.getStatusIntervalHandle);
+      vacuum.getStatusIntervalHandle = null;
     }
   }
 
@@ -1062,9 +1129,12 @@ class Roborock {
 
   getProductAttribute(duid, attribute) {
     // Owned devices live in this.devices; shared devices in this.receivedDevices.
+    // Fall back to the HomeData cache when startService has not populated the
+    // device lists yet, so early accessory reads cannot throw.
     const device =
-      this.devices.find((device) => device.duid == duid) ||
-      (this.receivedDevices || []).find((device) => device.duid == duid);
+      (this.devices || []).find((device) => device.duid == duid) ||
+      (this.receivedDevices || []).find((device) => device.duid == duid) ||
+      this.getVacuumDeviceData(duid);
 
     if (!device) {
       this.log.warn(
@@ -1073,32 +1143,16 @@ class Roborock {
       return null;
     }
 
-    const product = (this.products || []).find(
-      (product) => product.id == device.productId
-    );
+    const products = this.products || this.getParsedHomeData()?.products || [];
+    const product = products.find((product) => product.id == device.productId);
 
     return product ? product[attribute] : null;
   }
 
   startMainUpdateInterval(duid, online) {
-    if (!this.hasInitializedVacuum(duid)) {
-      return;
-    }
-
-    const robotModel = this.getProductAttribute(duid, "model");
-
-    this.vacuums[duid].mainUpdateInterval = () =>
-      this.setInterval(
-        this.updateDataMinimumData.bind(this),
-        this.updateInterval * 1000,
-        duid,
-        this.vacuums[duid],
-        robotModel
-      );
     if (online) {
-      this.log.debug(`${duid} online. Starting mainUpdateInterval.`);
-      this.vacuums[duid].mainUpdateInterval(); // actually start mainUpdateInterval()
-      // Map updater gets startet automatically via getParameter with get_status
+      this.log.debug(`${duid} online. Starting update intervals.`);
+      this.startDeviceIntervals(duid);
     }
   }
 
@@ -1128,45 +1182,37 @@ class Roborock {
   }
 
   async onlineChecker(duid) {
-    const homedata = await this.getStateAsync("HomeData");
-
-    // If the home data is not found or if its value is not a string, return false.
-    if (homedata && typeof homedata.val == "string") {
-      const homedataJSON = JSON.parse(homedata.val);
-      const device = homedataJSON.devices.find((device) => device.duid == duid);
-      const receivedDevice = homedataJSON.receivedDevices.find(
-        (device) => device.duid == duid
-      );
-
-      // If the device is not found, return false.
-      if (!device && !receivedDevice) {
-        return false;
-      }
-
-      return device?.online || receivedDevice?.online;
-    } else {
+    const homedata = this.getParsedHomeData();
+    if (!homedata) {
       return false;
     }
+
+    const device = (homedata.devices || []).find(
+      (device) => device.duid == duid
+    );
+    const receivedDevice = (homedata.receivedDevices || []).find(
+      (device) => device.duid == duid
+    );
+
+    // If the device is not found, return false.
+    if (!device && !receivedDevice) {
+      return false;
+    }
+
+    return device?.online || receivedDevice?.online;
   }
 
   async isRemoteDevice(duid) {
-    const homedata = await this.getStateAsync("HomeData");
-
-    if (homedata && typeof homedata.val == "string") {
-      const homedataJSON = JSON.parse(homedata.val);
-      const receivedDevice = homedataJSON.receivedDevices.find(
-        (device) => device.duid == duid
-      );
-      const remoteDevice = this.remoteDevices.has(duid);
-
-      if (receivedDevice || remoteDevice) {
-        return true;
-      }
-
-      return false;
-    } else {
+    const homedata = this.getParsedHomeData();
+    if (!homedata) {
       return false;
     }
+
+    const receivedDevice = (homedata.receivedDevices || []).find(
+      (device) => device.duid == duid
+    );
+
+    return !!receivedDevice || this.remoteDevices.has(duid);
   }
 
   async getConnector(duid) {
@@ -1186,13 +1232,10 @@ class Roborock {
 
     return this.onlineChecker(duid)
       .then((onlineState) => {
-        const vacuum = this.vacuums[duid];
-        if (!onlineState && vacuum.mainUpdateInterval) {
-          this.clearInterval(vacuum.getStatusIntervall);
-          this.clearInterval(vacuum.mainUpdateInterval);
-        } else if (!vacuum.mainUpdateInterval) {
-          vacuum.getStatusIntervall();
-          this.startMainUpdateInterval(duid, onlineState);
+        if (!onlineState) {
+          this.stopDeviceIntervals(duid);
+        } else {
+          this.startDeviceIntervals(duid); // idempotent, never stacks
         }
         return onlineState;
       })
@@ -1285,11 +1328,11 @@ class Roborock {
       this.clearTimeout(this.commandTimeout);
     }
 
-    this.localConnector.clearLocalDevicedTimeout();
+    this.localConnector.shutdown();
+    this.rr_mqtt_connector.disconnectClient();
 
     for (const duid in this.vacuums) {
-      this.clearInterval(this.vacuums[duid].getStatusIntervall);
-      this.clearInterval(this.vacuums[duid].mainUpdateInterval);
+      this.stopDeviceIntervals(duid);
     }
 
     // current-room -> MQTT: tear down the local publisher client.
@@ -1755,24 +1798,18 @@ class Roborock {
         this.vacuums[duid].getParameter(duid, "get_photo", parameters);
         break;
       case "sniffing_decrypt":
-        await this.getStateAsync("HomeData")
-          .then((homedata) => {
-            if (homedata) {
-              const homedataVal = homedata.val;
-              if (typeof homedataVal == "string") {
-                // this.log.debug("Sniffing message received!");
-                const homedataParsed = JSON.parse(homedataVal);
-
-                this.decodeSniffedMessage(data, homedataParsed.devices);
-                this.decodeSniffedMessage(data, homedataParsed.receivedDevices);
-              }
-            }
-          })
-          .catch((error) => {
-            this.log.error(
-              "Failed to decode/decrypt sniffing message. " + error
+        try {
+          const homedataParsed = this.getParsedHomeData();
+          if (homedataParsed) {
+            this.decodeSniffedMessage(parameters, homedataParsed.devices || []);
+            this.decodeSniffedMessage(
+              parameters,
+              homedataParsed.receivedDevices || []
             );
-          });
+          }
+        } catch (error) {
+          this.log.error("Failed to decode/decrypt sniffing message. " + error);
+        }
 
         break;
       default:
@@ -1910,15 +1947,11 @@ class Roborock {
   }
 
   async getRobotVersion(duid) {
-    const homedata = await this.getStateAsync("HomeData");
-    if (homedata && homedata.val) {
-      const devices = JSON.parse(homedata.val.toString()).devices.concat(
-        JSON.parse(homedata.val.toString()).receivedDevices
-      );
-
-      for (const device in devices) {
-        if (devices[device].duid == duid) return devices[device].pv;
-      }
+    const device = this.getAllHomeDevices().find(
+      (device) => device.duid == duid
+    );
+    if (device) {
+      return device.pv;
     }
 
     return "Error in getRobotVersion. Version not found.";
@@ -2275,10 +2308,6 @@ class Roborock {
     };
   }
 
-  async getStatus(duid, vacuum) {
-    await vacuum.getParameter(duid, "get_status");
-  }
-
   async getStatus(duid) {
     try {
       await this.vacuums[duid].getParameter(duid, "get_status", "state");
@@ -2288,30 +2317,17 @@ class Roborock {
   }
 
   getProductData(productId) {
-    const homedata = this.getStateAsync("HomeData");
+    const homedata = this.getParsedHomeData();
 
-    if (homedata && typeof homedata.val == "string") {
-      const homedataJSON = JSON.parse(homedata.val);
-      const product = homedataJSON.products.find(
+    if (homedata) {
+      return (homedata.products || []).find(
         (product) => product.id == productId
       );
-
-      return product;
     }
   }
 
   getVacuumDeviceData(duid) {
-    const homedata = this.getStateAsync("HomeData");
-
-    if (homedata && typeof homedata.val == "string") {
-      const homedataJSON = JSON.parse(homedata.val);
-      const device = homedataJSON.devices.find((device) => device.duid == duid);
-      const receivedDevice = homedataJSON.receivedDevices.find(
-        (device) => device.duid == duid
-      );
-
-      return device || receivedDevice;
-    }
+    return this.getAllHomeDevices().find((device) => device.duid == duid);
   }
 
   getVacuumSchemaId(duid, code) {
@@ -2357,16 +2373,7 @@ class Roborock {
   }
 
   getVacuumList() {
-    const homedata = this.getStateAsync("HomeData");
-
-    if (homedata && typeof homedata.val == "string") {
-      const homedataJSON = JSON.parse(homedata.val);
-      const devices = homedataJSON.devices.concat(homedataJSON.receivedDevices);
-
-      return devices;
-    }
-
-    return [];
+    return this.getAllHomeDevices();
   }
 
   setDeviceNotify(callback) {
