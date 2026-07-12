@@ -88,6 +88,7 @@ When Homebridge restarts, each device is (re)published according to its selectio
 - **Vacuum / Mop / Vacuum & Mop** clean modes, mapped to the Roborock suction and water-box settings (models without a water box only offer Vacuum).
 - **Battery, charging state and error reporting** (stuck, dust bin missing, dock unreachable, … are surfaced as Matter operational errors).
 - Every Roborock **scene** that targets the device becomes an on/off button (see step 5 below). When the same scene name exists on more than one Matter vacuum, the vacuum's name is appended to keep the buttons distinguishable.
+- On docks that can wash the mop, a **dock mop-wash switch** (bridged like the scene buttons, so it also needs the step-5 pairing). See [Dock mop-wash switch](#dock-mop-wash-switch).
 - **Identify** ("play sound to locate" in Apple Home) plays the vacuum's find-me sound.
 
 Run-mode semantics follow the Matter spec: setting the run mode to **Idle stops** the vacuum where it is; use the **dock/Go Home** control to send it back to the charger.
@@ -112,7 +113,18 @@ Pairing is one-time per node — switching a device between HAP and Matter later
 - **Apple Home compatibility is immature** — see the warning at the top of this section. Treat this as a beta and expect to occasionally re-pair or restart Homebridge after controller/iOS updates.
 - The device always pairs as a generic, uncertified **"Matter Accessory"**: controllers look the bridge's test vendor ID up in the certification database and ignore the name the device advertises, so the name must be entered manually (the pairing panel shows what to type).
 - Scene buttons require the **separate bridge pairing** (step 5) and appear as plain on/off switches in the controller.
-- Multi-floor maps are not exposed (rooms come from the currently active map), and zone cleaning, consumables and dock controls are not available over Matter yet.
+- Multi-floor maps are not exposed (rooms come from the currently active map), and zone cleaning, consumables and dock controls other than the mop-wash switch are not available over Matter yet.
+
+## Dock mop-wash switch
+
+On vacuums whose dock can wash the mop (G10, S7 Pro/MaxV Ultra, S7 Max Ultra, S8 Pro Ultra, Q Revo family, …) the plugin adds a switch that starts and stops a dock mop wash:
+
+- **HAP devices** get an extra switch service on the vacuum accessory.
+- **Matter devices** get a bridged on/off switch on the plugin's own Matter bridge (the same pairing as the scene buttons — step 5 above).
+
+The switch is **stateful**: it turns on whenever the dock is washing the mop — including washes started from the Roborock app or mid-clean wash cycles — and turning it off stops the wash. Devices without a washing dock don't get the switch.
+
+The switch's default name comes from the plugin's translation catalog in the language selected by the **Language** option on the settings page (`"language"` in `config.json`; default `en`, 12 languages including `zh-cn` and `zh-tw`). Changing the language only renames accessories on the next restart — accessory identities never change, so **no re-pairing and no room re-selection is needed**. You can also rename the switch freely in your home app.
 
 ## Current Room → MQTT (optional telemetry)
 

@@ -5,6 +5,9 @@ export interface RoborockPlatformConfig extends PlatformConfig {
   password?: string;
   debugMode: boolean;
   baseURL?: string;
+  // i18n catalog for device-provided switch names (roborockLib/i18n/<lang>).
+  // Only affects display names — never accessory UUIDs or pairing.
+  language?: string;
   encryptedToken?: string;
   skipDevices?: string | string[];
   matterDevices?: string | string[];

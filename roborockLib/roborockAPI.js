@@ -33,6 +33,22 @@ function md5hex(str) {
   return crypto.createHash("md5").update(str).digest("hex");
 }
 
+// Dock types whose station can wash the mop (see deviceFeatures.processDockType).
+const MOP_WASHING_DOCK_TYPES = [2, 3, 6, 7, 8, 9];
+
+// Only languages with a bundled i18n catalog are accepted; anything else
+// (including path-traversal attempts) falls back to English.
+function sanitizeLanguage(language) {
+  if (
+    typeof language === "string" &&
+    /^[a-z]{2}(-[a-z]{2})?$/.test(language) &&
+    fs.existsSync(path.join(__dirname, "i18n", language, "translations.json"))
+  ) {
+    return language;
+  }
+  return "en";
+}
+
 class Roborock {
   constructor(options) {
     this.bInited = false;
@@ -41,7 +57,7 @@ class Roborock {
 
     this.updateInterval = options.updateInterval || 180;
     this.log = options.log || console;
-    this.language = options.language || "en";
+    this.language = sanitizeLanguage(options.language);
 
     this.localKeys = null;
     this.localL01Nonces = new Map();
@@ -2169,6 +2185,65 @@ class Roborock {
     }
 
     await vacuum.command(duid, "find_me", null);
+  }
+
+  /**
+   * Start washing the mop at the dock. Used by the HAP/Matter dock-wash
+   * switch; only meaningful on washing-capable docks (isDockWashSupported).
+   */
+  async app_start_wash(duid) {
+    await this.dockWashCommand(duid, "app_start_wash");
+  }
+
+  /** Stop an in-progress mop wash at the dock. */
+  async app_stop_wash(duid) {
+    await this.dockWashCommand(duid, "app_stop_wash");
+  }
+
+  async dockWashCommand(duid, command) {
+    if (!this.isInited()) {
+      this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    const vacuum = this.vacuums[duid];
+    if (!vacuum) {
+      this.log.warn(`${command}: unknown device ${duid}.`);
+      return;
+    }
+
+    await vacuum.command(duid, command, null);
+  }
+
+  /**
+   * Whether the device's dock can wash the mop. The featureSet bit from the
+   * cloud home data is authoritative and available at discovery; the polled
+   * dock_type (see deviceFeatures.processDockType) is the fallback for
+   * devices whose featureSet does not carry the bit.
+   */
+  isDockWashSupported(duid) {
+    try {
+      const features = this.vacuums[duid]?.features?.getFeatureList?.();
+      if (features && features.isWashThenChargeCmdSupported) {
+        return true;
+      }
+    } catch (error) {
+      this.log.debug(`isDockWashSupported: ${error}`);
+    }
+
+    const dockType = this.getStateAsync(
+      `Devices.${duid}.deviceStatus.dock_type`
+    );
+    return MOP_WASHING_DOCK_TYPES.includes(Number(dockType?.val));
+  }
+
+  /**
+   * Localized label from the bundled i18n catalog selected by the `language`
+   * option (loaded in startService). Falls back to the key itself so callers
+   * always get a usable string.
+   */
+  getTranslation(key) {
+    return (this.translations && this.translations[key]) || key;
   }
 
   /**

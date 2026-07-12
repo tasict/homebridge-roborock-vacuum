@@ -3,6 +3,7 @@ const elements = {
   password: document.getElementById("password"),
   passwordRow: document.getElementById("password-row"),
   baseUrl: document.getElementById("base-url"),
+  language: document.getElementById("language"),
   skipDevices: document.getElementById("skip-devices"),
   addSkipDevice: document.getElementById("add-skip-device"),
   loadDevices: document.getElementById("load-devices"),
@@ -162,6 +163,7 @@ async function loadConfig() {
   elements.baseUrl.value = normalizeBaseUrl(
     config.baseURL || "https://usiot.roborock.com"
   );
+  elements.language.value = config.language || "en";
   renderSkipDevices(config.skipDevices);
   matterSelected.clear();
   parseDeviceIds(config.matterDevices).forEach((id) => matterSelected.add(id));
@@ -207,6 +209,10 @@ function getPassword() {
 
 function getBaseUrl() {
   return elements.baseUrl.value;
+}
+
+function getLanguage() {
+  return elements.language.value || "en";
 }
 
 function getSkipDevices() {
@@ -740,6 +746,7 @@ async function saveCredentials() {
   await updatePluginConfig({
     email,
     baseURL,
+    language: getLanguage(),
     skipDevices,
     matterDevices: matterDevices || undefined,
     // Always written as a string (possibly empty): an absent key means the
@@ -908,6 +915,7 @@ function init() {
   elements.verify2fa.addEventListener("click", verifyTwoFactorCode);
   elements.logout.addEventListener("click", logout);
   elements.baseUrl.addEventListener("change", saveCredentials);
+  elements.language.addEventListener("change", saveCredentials);
   elements.addSkipDevice.addEventListener("click", () => {
     addSkipDeviceRow();
   });

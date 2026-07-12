@@ -44,8 +44,8 @@ const ROBOROCK_STATE_TO_OPERATIONAL_STATE: Record<number, number> = {
   17: 1, // Zone Clean → Running
   18: 1, // Room Clean → Running
   22: 67, // Emptying dust container → EmptyingDustBin
-  23: 1, // Washing the mop → Running
-  26: 1, // Going to wash the mop → Running
+  23: 68, // Washing the mop → Cleaning mop
+  26: 1, // Going to wash the mop → Running (still driving to the dock)
   28: 0, // In call → Stopped
   29: 1, // Mapping → Running
   100: 66, // Fully Charged → Docked

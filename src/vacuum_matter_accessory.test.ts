@@ -142,6 +142,8 @@ describe("RoborockVacuumMatterAccessory", () => {
       [8, 65], // Charging → Charging
       [10, 2], // Paused → Paused
       [12, 3], // Error → Error
+      [23, 68], // Washing the mop → Cleaning mop
+      [26, 1], // Going to wash the mop → Running
       [100, 66], // Fully charged → Docked
       [99, 0], // Unknown → Stopped
     ])("maps Roborock state %i to Matter state %i", (state, expected) => {

@@ -319,7 +319,9 @@ class vacuum {
 
             switch (attribute) {
               case "dock_type":
-                this.adapter.vacuums[duid].features.processDockType(attribute);
+                this.adapter.vacuums[duid].features.processDockType(
+                  deviceStatus[0][attribute]
+                );
                 break;
               case "dss":
                 await this.adapter.createDockingStationObject(duid);

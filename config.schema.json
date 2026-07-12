@@ -45,6 +45,26 @@
         "default": "https://usiot.roborock.com",
         "description": "Roborock API endpoint: https://usiot.roborock.com (US), https://euiot.roborock.com (EU), https://cniot.roborock.com (CN), https://api.roborock.com (Asia)"
       },
+      "language": {
+        "title": "Language",
+        "type": "string",
+        "default": "en",
+        "description": "Language for device-provided switch names (e.g. the dock mop-wash switch). Changing it only renames accessories after a restart — no re-pairing or room re-selection is required.",
+        "oneOf": [
+          { "title": "English", "enum": ["en"] },
+          { "title": "Deutsch", "enum": ["de"] },
+          { "title": "Español", "enum": ["es"] },
+          { "title": "Français", "enum": ["fr"] },
+          { "title": "Italiano", "enum": ["it"] },
+          { "title": "Nederlands", "enum": ["nl"] },
+          { "title": "Polski", "enum": ["pl"] },
+          { "title": "Português", "enum": ["pt"] },
+          { "title": "Русский", "enum": ["ru"] },
+          { "title": "Українська", "enum": ["uk"] },
+          { "title": "简体中文", "enum": ["zh-cn"] },
+          { "title": "繁體中文", "enum": ["zh-tw"] }
+        ]
+      },
       "debugMode": {
         "title": "Debug Mode",
         "description": "When enabled, debug messages will be written to the log.",

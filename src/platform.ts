@@ -13,6 +13,7 @@ import {
 import RoborockVacuumAccessory from "./vacuum_accessory";
 import { RoborockVacuumMatterAccessory } from "./vacuum_matter_accessory";
 import { RoborockSceneMatterAccessory } from "./scene_matter_accessory";
+import { RoborockDockWashMatterAccessory } from "./dock_wash_matter_accessory";
 
 import RoborockPlatformLogger from "./logger";
 import { RoborockPlatformConfig } from "./types";
@@ -95,6 +96,11 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   private readonly matterSceneUuids: Set<string> = new Set();
   private readonly matterDeviceInfo: Map<string, any> = new Map();
   private matterSceneSyncInProgress = false;
+  // Dock mop-wash switches, keyed by duid (only washing-capable docks).
+  private readonly matterDockWash: Map<
+    string,
+    RoborockDockWashMatterAccessory
+  > = new Map();
 
   public readonly roborockAPI: any;
   public readonly log: RoborockPlatformLogger;
@@ -157,6 +163,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       password: password,
       debug: debugMode,
       baseURL: baseURL,
+      language: this.platformConfig.language,
       log: this.log,
       userData: decryptedSession,
       storagePath: storagePath,
@@ -267,6 +274,10 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         // Scenes load asynchronously; sync the Matter scene buttons once
         // they are available (or when they change).
         self.syncMatterScenes();
+        // Keep the dock-wash switches in line with the cached device state.
+        for (const dockWash of self.matterDockWash.values()) {
+          dockWash.refreshFromDevice();
+        }
       } else if (id === "CloudMessage" || id === "LocalMessage") {
         // Transport messages carry no device id, so fan device-status
         // payloads out to every Matter vacuum (same as the HAP accessories
@@ -278,6 +289,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
             matterVacuum.updateSupportedAreas(
               self.roborockAPI.getSegmentRooms?.(duid) ?? []
             );
+          }
+          for (const dockWash of self.matterDockWash.values()) {
+            dockWash.updateFromRoborockData(payload);
           }
         }
       }
@@ -420,7 +434,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     }
 
     const duid = accessory.context?.duid as string | undefined;
-    if (duid && accessory.context?.sceneId === undefined) {
+    if (duid && accessory.context?.dockWash !== undefined) {
+      this.matterDockWash.delete(duid);
+    } else if (duid && accessory.context?.sceneId === undefined) {
       this.matterVacuums.delete(duid);
     }
     this.matterAccessories.delete(uuid);
@@ -566,6 +582,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       // regardless of the order devices were discovered in.
       for (const [duid, device] of self.matterDeviceInfo) {
         self.collectMatterSceneAccessories(device, duid, matterToRegister);
+        self.collectMatterDockWashAccessory(device, duid, matterToRegister);
       }
 
       // Register all newly discovered Matter accessories in a single batch.
@@ -586,6 +603,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         for (const vacuum of self.matterVacuums.values()) {
           vacuum.refreshCleanModes();
           vacuum.refreshServiceArea();
+        }
+        for (const dockWash of self.matterDockWash.values()) {
+          dockWash.refreshFromDevice();
         }
       }
 
@@ -810,6 +830,74 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         });
       }
     }
+  }
+
+  /**
+   * Create the dock mop-wash switch for a Matter-published vacuum whose dock
+   * can wash the mop, and queue it for registration. The switch name comes
+   * from the bundled translation catalog (localized by the `language`
+   * option); the UUID only depends on the duid, so a language change only
+   * renames the switch and never requires re-pairing. A cached switch whose
+   * device turns out not to support washing is unregistered.
+   */
+  private collectMatterDockWashAccessory(
+    device: any,
+    duid: string,
+    toRegister: MatterAccessory[]
+  ): void {
+    const matter = this.api.matter;
+    if (!matter) {
+      return;
+    }
+
+    const uuid = matter.uuid.generate(`${duid}-dock-wash`);
+    const supported = !!this.roborockAPI.isDockWashSupported?.(duid);
+
+    if (!supported) {
+      const cached = this.matterAccessories.get(uuid);
+      if (cached) {
+        this.unregisterMatterAccessory(
+          uuid,
+          cached,
+          "because the device's dock cannot wash the mop"
+        ).catch((error) => {
+          this.log.debug(`Failed to remove stale dock wash switch: ${error}`);
+        });
+      }
+      return;
+    }
+
+    if (this.matterDockWash.has(duid)) {
+      return; // Already created this session.
+    }
+
+    const baseName = String(
+      this.roborockAPI.getTranslation?.("app_start_wash") || "Mop Washing"
+    );
+    // The localized label is the same for every vacuum; append the vacuum
+    // name when more than one washing-capable dock is bridged.
+    const washCapableCount = [...this.matterDeviceInfo.keys()].filter((id) =>
+      this.roborockAPI.isDockWashSupported?.(id)
+    ).length;
+    const displayName =
+      washCapableCount > 1 ? `${baseName} (${device.name})` : baseName;
+
+    const dockWash = new RoborockDockWashMatterAccessory(
+      this.api,
+      this.homebridgeLogger,
+      device,
+      displayName,
+      this.roborockAPI
+    );
+
+    this.log.info(
+      `Adding Matter dock wash switch '${displayName}' (${uuid}) ` +
+        `for '${device.name}'.`
+    );
+    this.matterDockWash.set(duid, dockWash);
+    const accessory = dockWash.toAccessory();
+    this.matterAccessories.set(uuid, accessory);
+    toRegister.push(accessory);
   }
 
   /**

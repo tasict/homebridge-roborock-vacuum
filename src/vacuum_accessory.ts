@@ -5,10 +5,15 @@ import RoborockPlatform from "./platform";
  * An instance of this class is created for each accessory the platform registers.
  * Each accessory may expose multiple services of different service types.
  */
+// Roborock device states meaning the dock is washing the mop (23) or the
+// vacuum is on its way to be washed (26).
+const MOP_WASHING_STATES = [23, 26];
+
 export default class RoborockVacuumAccessory {
   private services: Service[] = [];
   private sceneServices: Map<string, Service> = new Map();
   private currentScenes: any[] = [];
+  private dockWashService?: Service;
 
   constructor(
     private readonly platform: RoborockPlatform,
@@ -95,6 +100,117 @@ export default class RoborockVacuumAccessory {
 
     // Initialize scene switches
     this.updateSceneSwitches();
+
+    // Dock mop-wash switch (only on washing-capable docks)
+    this.updateDockWashSwitch();
+  }
+
+  /**
+   * Add or remove the dock mop-wash switch depending on whether the device
+   * reports a washing-capable dock. The subtype is fixed ("dock-wash") so a
+   * language change only renames the service and never re-creates it.
+   */
+  updateDockWashSwitch() {
+    try {
+      const supported = this.platform.roborockAPI.isDockWashSupported(
+        this.accessory.context
+      );
+      const existingService = this.accessory.getServiceById(
+        this.platform.Service.Switch,
+        "dock-wash"
+      );
+
+      if (!supported) {
+        if (existingService) {
+          this.platform.log.debug(
+            `Removing dock wash switch for device ${this.accessory.context}`
+          );
+          this.accessory.removeService(existingService);
+        }
+        this.dockWashService = undefined;
+        return;
+      }
+
+      if (this.dockWashService) {
+        return;
+      }
+
+      const switchName =
+        this.platform.roborockAPI.getTranslation("app_start_wash");
+
+      this.platform.log.debug(
+        `Adding dock wash switch '${switchName}' for device ${this.accessory.context}`
+      );
+
+      const switchService =
+        existingService ||
+        this.accessory.addService(
+          this.platform.Service.Switch,
+          switchName,
+          "dock-wash"
+        );
+
+      switchService.setCharacteristic(
+        this.platform.Characteristic.Name,
+        switchName
+      );
+      switchService.addOptionalCharacteristic(
+        this.platform.Characteristic.ConfiguredName
+      );
+      switchService.setCharacteristic(
+        this.platform.Characteristic.ConfiguredName,
+        switchName
+      );
+
+      switchService
+        .getCharacteristic(this.platform.Characteristic.On)
+        .onSet(this.setDockWash.bind(this))
+        .onGet(this.getDockWash.bind(this));
+
+      this.dockWashService = switchService;
+    } catch (error) {
+      this.platform.log.error(`Error updating dock wash switch: ${error}`);
+    }
+  }
+
+  async setDockWash(value: CharacteristicValue) {
+    try {
+      if (value) {
+        await this.platform.roborockAPI.app_start_wash(this.accessory.context);
+      } else {
+        await this.platform.roborockAPI.app_stop_wash(this.accessory.context);
+      }
+    } catch (error) {
+      this.platform.log.error(`Error setting dock wash: ${error}`);
+      this.dockWashService?.updateCharacteristic(
+        this.platform.Characteristic.On,
+        this.isWashing()
+      );
+    }
+  }
+
+  async getDockWash(): Promise<CharacteristicValue> {
+    return this.isWashing();
+  }
+
+  isWashing(): boolean {
+    return this.isWashingState(
+      this.platform.roborockAPI.getVacuumDeviceStatus(
+        this.accessory.context,
+        "state"
+      )
+    );
+  }
+
+  isWashingState(state: number): boolean {
+    return MOP_WASHING_STATES.includes(state);
+  }
+
+  private updateDockWashState(state: number) {
+    this.dockWashService?.updateCharacteristic(
+      this.platform.Characteristic.On,
+      this.isWashingState(state)
+    );
   }
 
   updateDeviceState() {
@@ -137,6 +253,13 @@ export default class RoborockVacuumAccessory {
         ) != 0
           ? this.platform.Characteristic.ChargingState.CHARGING
           : this.platform.Characteristic.ChargingState.NOT_CHARGING
+      );
+
+      this.updateDockWashState(
+        this.platform.roborockAPI.getVacuumDeviceStatus(
+          this.accessory.context,
+          "state"
+        )
       );
 
       this.platform.log.debug(
@@ -319,6 +442,8 @@ export default class RoborockVacuumAccessory {
                 ? this.platform.Characteristic.Active.ACTIVE
                 : this.platform.Characteristic.Active.INACTIVE
             );
+
+            this.updateDockWashState(messages.state);
           }
 
           if (messages.hasOwnProperty("battery")) {
@@ -367,6 +492,8 @@ export default class RoborockVacuumAccessory {
               ? this.platform.Characteristic.Active.ACTIVE
               : this.platform.Characteristic.Active.INACTIVE
           );
+
+          this.updateDockWashState(data.dps["121"]);
         }
 
         if (data.hasOwnProperty("dps") && data.dps.hasOwnProperty("122")) {
@@ -391,6 +518,8 @@ export default class RoborockVacuumAccessory {
         this.updateDeviceState();
         // Update scene switches when home data changes
         this.updateSceneSwitches();
+        // Dock-wash support can become known after startup
+        this.updateDockWashSwitch();
       }
     } catch (e) {
       this.platform.log.error("Error notifying device updater: " + e);
