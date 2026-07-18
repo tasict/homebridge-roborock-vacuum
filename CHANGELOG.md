@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.3
+
+Stability release — no new features.
+
+- **Fix (crash)**: A failed Roborock cloud login (wrong credentials, expired session, or the cloud being unreachable) crashed Homebridge with an unhandled rejection during startup. The plugin now logs the error and stays idle instead of sending Homebridge into a crash-restart loop
+- **Hardening**: Platform startup is wrapped so any unexpected initialization error is logged instead of taking down Homebridge
+
 ## 2.1.2
 
 Maintenance release — no functional changes.

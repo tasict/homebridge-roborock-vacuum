@@ -178,7 +178,14 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
      */
     this.api.on(APIEvent.DID_FINISH_LAUNCHING, () => {
       this.log.debug("Finished launching and restored cached accessories.");
-      this.configurePlugin();
+      this.configurePlugin().catch((error) => {
+        this.log.error(
+          `Failed to start the Roborock platform: ${error}. ` +
+            "The plugin will stay idle; fix the configuration or connectivity " +
+            "issue and restart Homebridge."
+        );
+        this.log.debug(error);
+      });
     });
 
     this.api.on(APIEvent.SHUTDOWN, () => {
@@ -297,10 +304,19 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
       }
     });
 
-    self.roborockAPI.startService(function () {
-      self.log.info("Service started");
-      //call the discoverDevices function
-      self.discoverDevices();
+    Promise.resolve(
+      self.roborockAPI.startService(function () {
+        self.log.info("Service started");
+        //call the discoverDevices function
+        self.discoverDevices();
+      })
+    ).catch((error) => {
+      self.log.error(
+        `Failed to start the Roborock service: ${error}. ` +
+          "The plugin will stay idle; fix the configuration or connectivity " +
+          "issue and restart Homebridge."
+      );
+      self.log.debug(error);
     });
   }
 

@@ -728,10 +728,14 @@ class Roborock {
 
       throw new Error(`Login failed: ${JSON.stringify(loginResult)}`);
     } catch (error) {
+      // Failed logins (bad credentials, unreachable cloud) are expected
+      // runtime conditions — report "no user data" so startService aborts
+      // gracefully instead of crashing Homebridge with an unhandled
+      // rejection.
       this.log.error(`Error in getUserData: ${error.message}`);
       await this.deleteStateAsync("HomeData");
       await this.deleteStateAsync("UserData");
-      throw error;
+      return null;
     }
   }
 
