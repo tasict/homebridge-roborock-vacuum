@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.2
+
+Maintenance release — no functional changes.
+
+- **Fix**: Added the standard `name` property to `config.schema.json`. The settings UI already wrote a platform name to the config; it was only missing from the schema (flagged by the Homebridge verification checks)
+
 ## 2.1.1
 
 Maintenance release — no functional changes to device control.
