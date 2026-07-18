@@ -1,6 +1,6 @@
 {
   "name": "homebridge-roborock-vacuum",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Roborock Vacuum Cleaner - plugin for Homebridge.",
   "license": "MIT",
   "keywords": [
@@ -11,7 +11,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+hhttps://github.com/tasict/homebridge-roborock-vacuum"
+    "url": "git+https://github.com/tasict/homebridge-roborock-vacuum.git"
   },
   "bugs": {
     "url": "https://github.com/tasict/homebridge-roborock-vacuum/issues"
