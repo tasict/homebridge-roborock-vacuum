@@ -91,7 +91,7 @@ function showToast(type, message) {
   }
 
   const toast = document.createElement("div");
-  toast.className = `toast ${type}`;
+  toast.className = `rr-toast ${type}`;
   toast.textContent = message;
   elements.toastContainer.appendChild(toast);
 
@@ -354,6 +354,7 @@ function addSkipDeviceRow(value = "", shouldFocus = true) {
 
   const input = document.createElement("input");
   input.type = "text";
+  input.className = "form-control";
   input.placeholder = "Device ID";
   input.setAttribute("aria-label", "Skipped device ID");
   input.value = value;
@@ -607,6 +608,7 @@ function renderDiscoveredDevices(devices) {
     label.textContent = `${device.name || device.duid}${model} — ${device.duid}${shared}`;
 
     const select = document.createElement("select");
+    select.className = "form-select form-select-sm";
     const current = currentProtocol(device.duid);
     const options = [{ value: "hap", text: "HomeKit (HAP)" }];
     if (matterSupported || current === "matter") {
@@ -905,7 +907,29 @@ async function updatePluginConfig(patch) {
   await withTimeout(window.homebridge.savePluginConfig(), 3000, undefined);
 }
 
+// The Homebridge UI injects its themed stylesheet into this iframe shortly
+// after "ready". Sample the theme's accent from a .primary-text probe once it
+// lands, so native checkboxes follow the user's theme color (--rr-primary in
+// styles.css). Retries because the injected stylesheet arrives asynchronously.
+function adoptThemeAccent(attempt = 0) {
+  const probe = document.createElement("span");
+  probe.className = "primary-text";
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+
+  if (color && color !== getComputedStyle(document.body).color) {
+    document.documentElement.style.setProperty("--rr-primary", color);
+    return;
+  }
+  if (attempt < 10) {
+    setTimeout(() => adoptThemeAccent(attempt + 1), 300);
+  }
+}
+
 function init() {
+  adoptThemeAccent();
   renderSkipDevices([]);
   loadConfig().catch(() => {
     showToast("error", "Failed to load current config.");
