@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.1.1
+
+Maintenance release — no functional changes to device control.
+
+- **Improvement**: The plugin settings page now inherits the Homebridge UI theme (theme color and light/dark mode) instead of using its own hard-coded dark palette, so it matches the rest of the Homebridge UI
+- **Fix**: Corrected a malformed `repository` URL in `package.json` (`git+hhttps://…`) that broke the "Repository" link on the NPM package page
+
+## 2.1.0
+
+- **New Feature**: Dock mop-wash switch
+  - Vacuums with a washing dock get an extra stateful switch that starts/stops a dock mop wash and mirrors the device's washing state — including washes started from the Roborock app
+  - Available over both HomeKit (extra Switch service on the vacuum accessory) and Matter (bridged on/off accessory per washing-capable vacuum)
+- **New Feature**: `language` config option (settings-page dropdown, default `en`, adds `zh-tw`) for localized device-provided switch names. Changing the language never affects accessory UUIDs or service subtypes, so no re-pairing or room re-selection is needed
+- **Fix**: Dock type detection used the attribute name instead of the actual `dock_type` value
+
 ## 2.0.1
 
 Stability and security hardening release based on a full plugin vulnerability scan. No new features, no configuration changes — updating is strongly recommended, especially on low-power hosts (NAS, Raspberry Pi).
