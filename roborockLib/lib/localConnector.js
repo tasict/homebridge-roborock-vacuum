@@ -15,6 +15,9 @@ const BROADCAST_TOKEN = Buffer.from("qWKYcdQWrbm9hPqe", "utf8");
 const MAX_SEGMENT_LENGTH = 8 * 1024 * 1024; // 8 MB per frame
 const MAX_CHUNK_BUFFER = 16 * 1024 * 1024; // 16 MB total buffered
 const RECONNECT_DELAY = 60000;
+// Minimum spacing between cloud-side IP refreshes per device, so the
+// reconnect loop cannot flood the cloud API when a device stays unreachable.
+const IP_REFRESH_MIN_INTERVAL = 60000;
 
 class EnhancedSocket extends net.Socket {
   constructor(options) {
@@ -70,6 +73,7 @@ class localConnector {
     this.localClients = {};
     this.l01HandshakeWaiters = new Map();
     this.reconnectTimeouts = new Map();
+    this.lastIpRefresh = new Map();
     this.shuttingDown = false;
   }
 
@@ -85,6 +89,13 @@ class localConnector {
       client
         .connect(58867, ip, async () => {
           this.adapter.log.debug(`tcp client for ${duid} connected`);
+          // A device that was demoted to the cloud path after a failed TCP
+          // connect is reachable again — promote it back to local mode.
+          if (this.adapter.remoteDevices.delete(duid)) {
+            this.adapter.log.info(
+              `Local connection for ${duid} restored. Switching back from cloud to local mode.`
+            );
+          }
           this.ensureL01Handshake(duid).catch((error) => {
             this.adapter.log.debug(
               `L01 handshake on connect failed for ${duid}: ${error.message}`
@@ -108,6 +119,10 @@ class localConnector {
         this.adapter.remoteDevices.add(duid);
         // this.adapter.catchError(`Failed to create tcp client: ${error.stack}`, `function createClient`, duid);
       }
+      // Keep probing in the background (with a cloud-side IP refresh) so a
+      // device that becomes reachable — or got a new DHCP address — is
+      // promoted back to local mode instead of staying cloud-only forever.
+      this.scheduleReconnect(duid, ip);
     });
 
     client.on("data", async (message) => {
@@ -270,9 +285,40 @@ class localConnector {
       duid,
       setTimeout(async () => {
         this.reconnectTimeouts.delete(duid);
-        await this.createClient(duid, ip);
+        // The IP captured at startup goes stale when DHCP hands the device a
+        // new address; re-query it over the cloud before dialing.
+        const refreshedIp = await this.refreshLocalIp(duid);
+        await this.createClient(duid, refreshedIp || ip);
       }, RECONNECT_DELAY)
     );
+  }
+
+  // Re-query the device's current local IP over the cloud channel
+  // (get_network_info updates adapter.localDevices). Rate-limited per device;
+  // returns the freshest known IP or undefined when none is available.
+  async refreshLocalIp(duid) {
+    const now = Date.now();
+    const lastRefresh = this.lastIpRefresh.get(duid) || 0;
+    if (now - lastRefresh >= IP_REFRESH_MIN_INTERVAL) {
+      this.lastIpRefresh.set(duid, now);
+      try {
+        if (
+          this.adapter.hasInitializedVacuum &&
+          this.adapter.hasInitializedVacuum(duid)
+        ) {
+          await this.adapter.vacuums[duid].getParameter(
+            duid,
+            "get_network_info"
+          );
+        }
+      } catch (error) {
+        this.adapter.log.debug(
+          `Cloud IP refresh failed for ${duid}: ${error && error.message}`
+        );
+      }
+    }
+
+    return this.adapter.localDevices[duid];
   }
 
   shutdown() {
@@ -474,11 +520,19 @@ class localConnector {
       });
 
       server.on("error", (error) => {
-        this.adapter.catchError(`Discover server error: ${error.stack}`);
+        // Port 58866 may already be taken by another Roborock integration on
+        // the same host. Discovery is best-effort (get_network_info provides
+        // IPs too), so a bind failure must not abort device creation.
+        this.adapter.log.warn(
+          `UDP discovery unavailable (${error.message}). Continuing without it; local IPs will come from the cloud instead.`
+        );
         closeServer();
+        if (this.localDevicesTimeout) {
+          this.adapter.clearTimeout(this.localDevicesTimeout);
+        }
         if (!settled) {
           settled = true;
-          reject(error);
+          resolve(devices);
         }
       });
 
@@ -533,7 +587,7 @@ class localConnector {
         decipher.update(input),
         decipher.final(),
       ]);
-      const unpadded = safeRemovePkcs7(decryptedBuf);
+      const unpadded = this.safeRemovePkcs7(decryptedBuf);
 
       // 若原協定內容是 UTF-8，這裡再轉字串；否則直接回傳 Buffer 讓上層處理
       return unpadded.toString("utf8");

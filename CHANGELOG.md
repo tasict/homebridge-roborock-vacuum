@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0 (unreleased)
+
+Connectivity and device-support release, porting recent fixes from the python-roborock and ioBroker.roborock upstream projects (see `UpstreamReview-2026-07.md`).
+
+- **New Feature**: Docks introduced since 2025 (Qrevo Curv, Saros 10, Qrevo S5V, Saros 20, and other new dock type codes 10–40) now get their dust-collection, mop-wash, and drying features — including the dock mop-wash switch. Unknown future dock types default to full-featured instead of featureless
+- **New Feature**: Room names now resolve for vacuums shared from another Roborock account (fetched via the device-share rooms API), so Matter room cleaning and the current-room publisher work on shared devices
+- **New Feature**: Qrevo Edge 2 (`a298`) support for clean-mode switching — it uses banded water levels (221–250), so the plugin no longer writes the classic level 202 that the device rejects
+- **Fix (connectivity)**: A vacuum whose IP changed (DHCP) no longer stays unreachable or silently cloud-only until Homebridge restarts — the local reconnect loop now re-queries the device's current IP over the cloud and reconnects to the fresh address; devices demoted to cloud mode after a TCP failure are promoted back to local mode once reachable again
+- **Fix (connectivity)**: The cloud MQTT connection is only reported healthy after the device-topic subscription actually succeeds (broker rejections arrive as qos 128); previously a failed subscription left the plugin claiming a working cloud channel that could never deliver a response
+- **Fix (connectivity)**: Q10-generation (B01 protocol) devices no longer hang startup with a 10-second timeout and stay cloud-only — they are queried with their own `service.get_net_info` method so they can learn their local IP
+- **Fix**: UDP discovery responses were silently discarded due to a missing `this.` in the decryption path; discovery now works again. A UDP port conflict (e.g. ioBroker.roborock on the same host) also no longer aborts all device creation
+- **Fix**: An invalidated cloud session (password change, session revoked) no longer produces an endless 401 retry loop — the cached session is cleared once, polling stops, and the log tells you to re-authenticate. If the 401 is caused by host clock drift (common on NAS hosts), the log instead points at the system time/NTP
+- Licensing note: python-roborock relicensed to Apache 2.0 (2026-07-20), making these ports license-compatible with this MIT plugin
+
 ## 2.1.3
 
 Stability release — no new features.

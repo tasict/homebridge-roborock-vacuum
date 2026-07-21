@@ -33,8 +33,12 @@ function md5hex(str) {
   return crypto.createHash("md5").update(str).digest("hex");
 }
 
-// Dock types whose station can wash the mop (see deviceFeatures.processDockType).
-const MOP_WASHING_DOCK_TYPES = [2, 3, 6, 7, 8, 9];
+// Dock types whose station cannot wash the mop: 0 = plain charging dock,
+// 1 and 5 = auto-empty only. Every other dock code (2, 3, 6-40 and future
+// generations) washes the mop, so the gate is membership in this small
+// exception set rather than an ever-growing wash-capable list
+// (see deviceFeatures.processDockType).
+const NON_MOP_WASHING_DOCK_TYPES = [0, 1, 5];
 
 // Only languages with a bundled i18n catalog are accepted; anything else
 // (including path-traversal attempts) falls back to English.
@@ -591,6 +595,8 @@ class Roborock {
 
             this.roomIDs[roomID] = roomName;
           }
+
+          await this.loadSharedDeviceRooms();
           this.log.debug(`RoomIDs debug: ${JSON.stringify(this.roomIDs)}`);
 
           // reconnect every 3 hours (10800 seconds)
@@ -1042,7 +1048,9 @@ class Roborock {
       try {
         await this.api.post(`user/scene/${sceneID.val}/execute`);
       } catch (error) {
-        this.catchError(error.stack, "executeScene");
+        if (!this.handleApiUnauthorized(error, "executeScene")) {
+          this.catchError(error.stack, "executeScene");
+        }
       }
     }
   }
@@ -1089,7 +1097,9 @@ class Roborock {
 
       return response.data;
     } catch (error) {
-      this.log.error(`Failed to get scenes: ${error.message}`);
+      if (!this.handleApiUnauthorized(error, "getScenes")) {
+        this.log.error(`Failed to get scenes: ${error.message}`);
+      }
       throw error;
     }
   }
@@ -1233,6 +1243,45 @@ class Roborock {
     );
 
     return !!receivedDevice || this.remoteDevices.has(duid);
+  }
+
+  // Rooms of a device shared from another account are not part of this
+  // account's home data, so their segment ids would never resolve to names.
+  // Query them per shared device and merge into roomIDs. Room entries carry
+  // their id as either `id` or `roomId` depending on the backend.
+  async loadSharedDeviceRooms() {
+    for (const device of this.receivedDevices || []) {
+      try {
+        const response = await this.api.get(
+          `user/deviceshare/query/${device.duid}/rooms`
+        );
+        const rooms = response?.data?.result;
+        if (!Array.isArray(rooms)) {
+          continue;
+        }
+
+        for (const room of rooms) {
+          const roomID = room.id !== undefined ? room.id : room.roomId;
+          if (roomID !== undefined && room.name) {
+            this.roomIDs[roomID] = room.name;
+          }
+        }
+      } catch (error) {
+        this.log.warn(
+          `Failed to load rooms for shared device ${device.duid}: ${error && error.message}`
+        );
+      }
+    }
+  }
+
+  // A device shared from another account (receivedDevices) can never use the
+  // local connection. Unlike isRemoteDevice, this excludes remoteDevices
+  // membership, which is only a temporary TCP-failure fallback.
+  isSharedDevice(duid) {
+    const homedata = this.getParsedHomeData();
+    const received = this.receivedDevices || homedata?.receivedDevices || [];
+
+    return received.some((device) => device.duid == duid);
   }
 
   async getConnector(duid) {
@@ -1416,9 +1465,72 @@ class Roborock {
           this.log.warn("homedata failed to download");
         }
       } catch (error) {
-        this.log.error(`Failed to update updateHomeData with error: ${error}`);
+        if (!this.handleApiUnauthorized(error, "updateHomeData")) {
+          this.log.error(
+            `Failed to update updateHomeData with error: ${error}`
+          );
+        }
       }
     }
+  }
+
+  /**
+   * Shared 401 handling for the Hawk-signed cloud API. Two distinct causes:
+   * - Host clock skew: the Hawk signature embeds a local timestamp, so NTP
+   *   drift (common on NAS hosts) invalidates every request. Detected via the
+   *   server Date header; self-heals once the clock is fixed, so polling
+   *   continues and only a clear hint is logged.
+   * - Invalidated session (password change, session revoked): retrying forever
+   *   just loops the same error, so the cached session is cleared and the
+   *   HomeData polling stops until the user re-authenticates.
+   * Returns true when the error was a 401 and has been handled here.
+   */
+  handleApiUnauthorized(error, context) {
+    if (!error || !error.response || error.response.status !== 401) {
+      return false;
+    }
+
+    const serverDate = error.response.headers?.date;
+    if (serverDate) {
+      const skewSeconds = Math.round(
+        (new Date(serverDate).getTime() - Date.now()) / 1000
+      );
+      if (Number.isFinite(skewSeconds) && Math.abs(skewSeconds) > 60) {
+        // Skew 401s hit every signed request; log the hint at most every 10 min.
+        const now = Date.now();
+        if (
+          !this.lastClockSkewWarning ||
+          now - this.lastClockSkewWarning > 10 * 60 * 1000
+        ) {
+          this.lastClockSkewWarning = now;
+          this.log.error(
+            `Roborock API rejected the request (401) in ${context}, and this host's clock is off by ${skewSeconds} seconds from the server. ` +
+              `Fix the system time (enable NTP) — the API request signature embeds a timestamp, so large clock skew invalidates every request.`
+          );
+        }
+        return true;
+      }
+    }
+
+    if (this.sessionInvalidated) {
+      return true;
+    }
+    this.sessionInvalidated = true;
+
+    this.log.warn(
+      `Roborock API rejected the session (401) in ${context}. ` +
+        `Clearing the cached session — please re-authenticate in the plugin settings and restart Homebridge.`
+    );
+
+    this.userData = null;
+    this.deleteStateAsync("UserData");
+
+    if (this.homedataInterval) {
+      this.clearInterval(this.homedataInterval);
+      this.homedataInterval = undefined;
+    }
+
+    return true;
   }
 
   async updateConsumablesPercent(devices) {
@@ -2235,10 +2347,13 @@ class Roborock {
       this.log.debug(`isDockWashSupported: ${error}`);
     }
 
-    const dockType = this.getStateAsync(
-      `Devices.${duid}.deviceStatus.dock_type`
+    const dockType = Number(
+      this.getStateAsync(`Devices.${duid}.deviceStatus.dock_type`)?.val
     );
-    return MOP_WASHING_DOCK_TYPES.includes(Number(dockType?.val));
+    return (
+      Number.isFinite(dockType) &&
+      !NON_MOP_WASHING_DOCK_TYPES.includes(dockType)
+    );
   }
 
   /**
@@ -2378,11 +2493,19 @@ class Roborock {
       this.log.debug(`getCleanModeCapabilities: ${error}`);
     }
 
+    // The Qrevo Edge 2 (a298) does not use the classic 200-203 water levels:
+    // it keeps 200 = Off but replaces 201-203 with banded levels 221-250,
+    // so writing the classic default 202 would be rejected by the device.
+    // 233 is the middle ("Medium") band. The sibling Qrevo Edge (a187) still
+    // uses the classic values.
+    const model = this.getProductAttribute(duid, "model");
+    const usesBandedWaterLevels = model === "roborock.vacuum.a298";
+
     return {
       fanOff: 105,
       fanDefault: 102,
       waterOff: 200,
-      waterDefault: 202,
+      waterDefault: usesBandedWaterLevels ? 233 : 202,
       mopSupported: mopSupported,
     };
   }

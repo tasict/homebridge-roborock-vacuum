@@ -65,9 +65,27 @@ const dockTypes = {
 	2: "Empty Wash Fill Dock",
 	3: "Empty Wash Fill (Dry) Dock",
 	5: "Auto-Empty Dock (Q8 Max+)",
+	6: "Empty Wash Fill Dry Dock (S7 Max Ultra)",
 	7: "Empty Wash Fill Dry Dock (S8 Pro Ultra)",
 	8: "Empty Wash Fill Dry Dock (Q Revo)",
 	9: "Empty Wash Fill Dry Dock (Q Revo Pro)",
+	10: "Empty Wash Fill Dry Dock (o5)",
+	11: "Empty Wash Fill Dry Dock (shell_2s)",
+	13: "Empty Wash Fill Dry Dock (couple dock)",
+	14: "Empty Wash Fill Dry Dock (shell_3)",
+	15: "Empty Wash Fill Dry Dock (shell_2c)",
+	16: "Empty Wash Fill Dry Dock (shell_3s)",
+	17: "Empty Wash Fill Dry Dock (Qrevo Curv)",
+	18: "Empty Wash Fill Dry Dock (Saros 10)",
+	19: "Empty Wash Fill Dry Dock (k1c)",
+	20: "Empty Wash Fill Dry Dock (k1s)",
+	21: "Empty Wash Fill Dry Dock (shell_e)",
+	22: "Empty Wash Fill Dry Dock (Qrevo S5V)",
+	23: "Empty Wash Fill Dry Dock (shell_3c)",
+	27: "Empty Wash Fill Dry Dock (Saros 20)",
+	28: "Empty Wash Fill Dry Dock (k1c lite)",
+	30: "Empty Wash Fill Dry Dock (shell_2e lite)",
+	40: "Empty Wash Fill Dry Dock (shell_2e heat)",
 };
 
 
@@ -1202,6 +1220,13 @@ class deviceFeatures {
 				this.isSupportedDrying();
 				break;
 			default:
+				// Every dock code not listed above (10-40 and any future code) is a
+				// full-featured dock: collect + wash + dry. Only the small legacy
+				// exception set above lacks features, so unknown codes must enable
+				// everything instead of silently disabling dock controls.
+				this.isDustCollectionSettingSupported();
+				this.isWashThenChargeCmdSupported();
+				this.isSupportedDrying();
 				break;
 		}
 	}

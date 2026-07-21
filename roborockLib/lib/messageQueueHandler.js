@@ -15,7 +15,7 @@ class messageQueueHandler {
 		const mqttConnectionState = this.adapter.rr_mqtt_connector.isConnected();
 		const localConnectionState = this.adapter.localConnector.isConnected(duid);
 
-		let useCloudConnection = remoteConnection || secure || photo || method == "get_network_info";
+		let useCloudConnection = remoteConnection || secure || photo || method == "get_network_info" || method == "service.get_net_info";
 		if (!useCloudConnection && !localConnectionState && mqttConnectionState) {
 			useCloudConnection = true;
 			this.adapter.log.info(`Local connection unavailable for ${duid}. Falling back to cloud connection for method ${method}.`);

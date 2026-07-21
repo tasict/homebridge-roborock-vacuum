@@ -69,17 +69,7 @@ class roborock_mqtt_connector {
 
     await client.on("connect", (result) => {
       if (typeof result != "undefined") {
-        client.subscribe(`rr/m/o/${rriot.u}/${mqttUser}/#`, (err, granted) => {
-          if (err) {
-            this.adapter.catchError(
-              `Failed to subscribe to Roborock MQTT Server! Error: ${err}, granted: ${JSON.stringify(granted)}`,
-              `client.on("connect")`
-            );
-          }
-        });
-        clearTimeout(timeout);
-
-        this.connected = true;
+        this.subscribeAndMarkConnected(timeout, `client.on("connect")`);
       }
       this.adapter.log.debug(
         `MQTT connection connected ${JSON.stringify(result)}.`
@@ -108,15 +98,7 @@ class roborock_mqtt_connector {
           `mqtt client reconnect`
         );
       } else {
-        client.subscribe(`rr/m/o/${rriot.u}/${mqttUser}/#`, (err, granted) => {
-          if (err) {
-            this.adapter.catchError(
-              `Failed to subscribe to Roborock MQTT Server! Error: ${err}, granted: ${JSON.stringify(granted)}`,
-              `client.on("reconnect")`
-            );
-          }
-        });
-        clearTimeout(timeout);
+        this.subscribeAndMarkConnected(timeout, `client.on("reconnect")`);
       }
       this.adapter.log.info(`MQTT connection reconnect.`);
     });
@@ -128,6 +110,29 @@ class roborock_mqtt_connector {
       );
 
       this.connected = false;
+    });
+  }
+
+  // The connection only counts as healthy once the device-topic subscription
+  // is granted: a connected broker session with a failed subscribe can never
+  // deliver a response, and reporting it as connected would suppress the
+  // local-connection fallback. Note the broker signals a rejected
+  // subscription via qos 128 in the grant, not via err.
+  subscribeAndMarkConnected(connectTimeout, context) {
+    client.subscribe(`rr/m/o/${rriot.u}/${mqttUser}/#`, (err, granted) => {
+      const rejected = !err && granted && granted[0] && granted[0].qos === 128;
+
+      if (err || rejected) {
+        this.connected = false;
+        this.adapter.catchError(
+          `Failed to subscribe to Roborock MQTT Server! Error: ${err}, granted: ${JSON.stringify(granted)}`,
+          context
+        );
+        return;
+      }
+
+      clearTimeout(connectTimeout);
+      this.connected = true;
     });
   }
 

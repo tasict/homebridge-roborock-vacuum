@@ -186,20 +186,43 @@ class vacuum {
     try {
       if (parameter == "get_network_info") {
         mode = parameter;
-        const networkInfo = await this.adapter.messageQueueHandler.sendRequest(
+        // B01 devices do not answer get_network_info; they expose the same
+        // data via service.get_net_info, with the IP under inconsistent
+        // field names depending on firmware (ip / ipAddress / ipAdress).
+        const version = await this.adapter.getRobotVersion(duid);
+        const method =
+          version == "B01" ? "service.get_net_info" : "get_network_info";
+        let networkInfo = await this.adapter.messageQueueHandler.sendRequest(
           duid,
-          parameter,
+          method,
           []
         );
 
-        for (const attribute in networkInfo) {
-          if (attribute == "ip" && !(await this.adapter.isRemoteDevice(duid))) {
-            this.adapter.localDevices[duid] = networkInfo[attribute];
+        if (Array.isArray(networkInfo)) {
+          networkInfo = networkInfo[0];
+        }
+
+        if (networkInfo && typeof networkInfo == "object") {
+          if (!networkInfo.ip) {
+            const alternateIp = networkInfo.ipAddress || networkInfo.ipAdress;
+            if (alternateIp) {
+              networkInfo.ip = alternateIp;
+            }
           }
-          this.adapter.setStateAsync(
-            `Devices.${duid}.networkInfo.${attribute}`,
-            { val: networkInfo[attribute], ack: true }
-          );
+
+          for (const attribute in networkInfo) {
+            // Devices demoted to the cloud path after a TCP failure
+            // (remoteDevices) still record their IP here so the reconnect
+            // loop can dial the fresh address; only devices shared from
+            // another account can never be local.
+            if (attribute == "ip" && !this.adapter.isSharedDevice(duid)) {
+              this.adapter.localDevices[duid] = networkInfo[attribute];
+            }
+            this.adapter.setStateAsync(
+              `Devices.${duid}.networkInfo.${attribute}`,
+              { val: networkInfo[attribute], ack: true }
+            );
+          }
         }
       } else if (parameter == "get_consumable") {
         const consumables = (
