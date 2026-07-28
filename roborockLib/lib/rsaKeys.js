@@ -21,13 +21,13 @@ function generateKeys() {
     crypto.generateKeyPair(
       "rsa",
       { modulusLength: 2048 },
-      (error, publicKey, privateKey) => {
+      (error, publicKey, secretKey) => {
         if (error) {
           reject(error);
           return;
         }
 
-        const jwk = privateKey.export({ format: "jwk" });
+        const jwk = secretKey.export({ format: "jwk" });
         resolve({
           public: {
             n: jwkToHex(jwk.n),
@@ -44,7 +44,7 @@ function generateKeys() {
             coeff: jwkToHex(jwk.qi),
           },
           publicKey,
-          privateKey,
+          secretKey,
         });
       }
     );

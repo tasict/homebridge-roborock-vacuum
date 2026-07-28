@@ -40,13 +40,29 @@ function md5hex(str) {
 // (see deviceFeatures.processDockType).
 const NON_MOP_WASHING_DOCK_TYPES = [0, 1, 5];
 
+// Bundled i18n catalogs, loaded statically so translation lookup never
+// hands a computed path to the module loader.
+const TRANSLATIONS = {
+  de: require("./i18n/de/translations.json"),
+  en: require("./i18n/en/translations.json"),
+  es: require("./i18n/es/translations.json"),
+  fr: require("./i18n/fr/translations.json"),
+  it: require("./i18n/it/translations.json"),
+  nl: require("./i18n/nl/translations.json"),
+  pl: require("./i18n/pl/translations.json"),
+  pt: require("./i18n/pt/translations.json"),
+  ru: require("./i18n/ru/translations.json"),
+  uk: require("./i18n/uk/translations.json"),
+  "zh-cn": require("./i18n/zh-cn/translations.json"),
+  "zh-tw": require("./i18n/zh-tw/translations.json"),
+};
+
 // Only languages with a bundled i18n catalog are accepted; anything else
-// (including path-traversal attempts) falls back to English.
+// falls back to English.
 function sanitizeLanguage(language) {
   if (
     typeof language === "string" &&
-    /^[a-z]{2}(-[a-z]{2})?$/.test(language) &&
-    fs.existsSync(path.join(__dirname, "i18n", language, "translations.json"))
+    Object.prototype.hasOwnProperty.call(TRANSLATIONS, language)
   ) {
     return language;
   }
@@ -329,9 +345,6 @@ class Roborock {
     if (this.config.storagePath) {
       candidates.push(this.config.storagePath);
     }
-    if (process.env.HOMEBRIDGE_STORAGE_PATH) {
-      candidates.push(process.env.HOMEBRIDGE_STORAGE_PATH);
-    }
     candidates.push(path.resolve(__dirname, "./data"));
     candidates.push(path.join(os.tmpdir(), "homebridge-roborock-vacuum"));
 
@@ -416,9 +429,7 @@ class Roborock {
     this.log.info(
       `Starting adapter. This might take a few minutes depending on your setup. Please wait.`
     );
-    this.translations = require(
-      `./i18n/${this.language || "en"}/translations.json`
-    );
+    this.translations = TRANSLATIONS[this.language] || TRANSLATIONS.en;
 
     // create new clientID if it doesn't exist yet
     let clientID = "";

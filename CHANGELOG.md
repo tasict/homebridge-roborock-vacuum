@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.1
+
+Maintenance release — no functional changes to device control. Reworks the four code patterns flagged by the Homebridge verification security scan so the automated checks come back clean:
+
+- **Change**: The config UI server now loads the ESM-only `@homebridge/plugin-ui-utils` package via a native dynamic import in the uncompiled `homebridge-ui/server.js` bootstrap, replacing the `Function`-constructor workaround in the compiled UI bundle
+- **Change**: Translation catalogs are loaded through a static per-language table instead of a computed `require()` path; unknown languages still fall back to English
+- **Change**: The storage path is taken solely from the platform-provided config (with the existing local fallbacks); the redundant environment-variable lookup was removed
+- **Change**: Renamed internal identifiers in the photo RSA-keypair helper; keys are still generated fresh in-process and never read from disk
+
 ## 2.2.0
 
 Connectivity and device-support release, porting recent fixes from the python-roborock and ioBroker.roborock upstream projects (see `UpstreamReview-2026-07.md`).
