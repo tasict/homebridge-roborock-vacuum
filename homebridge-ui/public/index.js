@@ -106,6 +106,20 @@ function showToast(type, message) {
 // leave the page hanging forever.
 const REQUEST_TIMEOUT_MS = 15000;
 
+// Endpoints that round-trip to the Roborock cloud need a bigger budget:
+// 2FA verify and password login each make two sequential cloud requests,
+// which can legitimately exceed 15s on a slow route. Each underlying
+// request is capped at 20s (axios timeout in roborockAuth/roborockHome),
+// so the server always answers — with a real error if the cloud hangs —
+// before this deadline fires.
+const CLOUD_REQUEST_TIMEOUT_MS = 60000;
+const CLOUD_PATHS = [
+  "/auth/login",
+  "/auth/send-2fa-email",
+  "/auth/verify-2fa-code",
+  "/devices/list",
+];
+
 function withTimeout(promise, ms, fallback) {
   return Promise.race([
     promise,
@@ -116,10 +130,13 @@ function withTimeout(promise, ms, fallback) {
 }
 
 async function request(path, body) {
+  const timeoutMs = CLOUD_PATHS.includes(path)
+    ? CLOUD_REQUEST_TIMEOUT_MS
+    : REQUEST_TIMEOUT_MS;
   try {
     return await withTimeout(
       window.homebridge.request(path, body),
-      REQUEST_TIMEOUT_MS,
+      timeoutMs,
       {
         ok: false,
         message:

@@ -12,7 +12,7 @@ function md5hex(str) {
 // credentials, mirroring the signing the main plugin uses for the Roborock
 // "real" API (see roborockAPI.js initUser).
 function createSignedApi(rriot) {
-  const api = axios.create({ baseURL: rriot.r.a });
+  const api = axios.create({ baseURL: rriot.r.a, timeout: 20000 });
   api.interceptors.request.use((config) => {
     const timestamp = Math.floor(Date.now() / 1000);
     const nonce = crypto

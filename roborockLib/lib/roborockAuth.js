@@ -51,6 +51,9 @@ function encryptPassword(password, k) {
 function createLoginApi({ baseURL, username, clientID, language }) {
 	return axios.create({
 		baseURL: `https://${normalizeBaseURL(baseURL)}`,
+		// Fail with a real error instead of hanging: the config UI budgets 60s
+		// per action, and login/2FA-verify chain two requests through this client.
+		timeout: 20000,
 		headers: {
 			header_clientid: crypto.createHash("md5").update(username).update(clientID).digest().toString("base64"),
 			header_clientlang: language || DEFAULT_HEADERS.header_clientlang,

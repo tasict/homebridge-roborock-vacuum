@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.2 (unreleased)
+
+- **Fix (config UI)**: 2FA verification and login no longer fail with the generic "The Homebridge UI did not respond in time" message on slow connections (#58). Cloud-backed actions (login, 2FA, device list) now get a 60-second budget in the UI instead of 15 seconds — 2FA verify and password login each make two sequential Roborock cloud requests, which could legitimately exceed the old limit. Each underlying cloud request is also capped at 20 seconds, so a genuinely unreachable Roborock server now surfaces the real network error instead of the generic timeout
+
 ## 2.2.1
 
 Maintenance release — no functional changes to device control. Reworks the four code patterns flagged by the Homebridge verification security scan so the automated checks come back clean:
