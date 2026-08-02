@@ -227,7 +227,13 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
     device: any,
     roborockAPI: any
   ) {
-    const productModel = device.productModel || device.model || "Unknown";
+    // Home-data device objects carry no model field — the model lives in the
+    // products table, resolved via getProductAttribute (same as the HAP side).
+    const productModel =
+      roborockAPI.getProductAttribute?.(device.duid, "model") ||
+      device.productModel ||
+      device.model ||
+      "Unknown";
     const firmwareVersion = device.fv || "1.0.0";
     const capabilities: CleanModeCapabilities = {
       ...DEFAULT_CLEAN_MODE_CAPABILITIES,

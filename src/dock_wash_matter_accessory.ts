@@ -43,7 +43,11 @@ export class RoborockDockWashMatterAccessory extends BaseMatterAccessory {
       deviceType: matter.deviceTypes.OnOffOutlet,
       serialNumber: `${device.sn || device.duid}-DW`,
       manufacturer: "Roborock",
-      model: device.productModel || device.model || "Dock",
+      model:
+        roborockAPI.getProductAttribute?.(device.duid, "model") ||
+        device.productModel ||
+        device.model ||
+        "Dock",
       firmwareRevision: device.fv || "1.0.0",
       hardwareRevision: "1.0.0",
       context: {

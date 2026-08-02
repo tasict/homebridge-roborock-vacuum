@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.4
+
+- **New Feature (HAP)**: Consumable life (filter, main brush, side brush) is now exposed as HomeKit FilterMaintenance services — remaining life in percent plus a "change filter" alert when a consumable drops to 5% or less. Services are only created for consumables the device actually reports, and their names follow the plugin language
+- **New Feature (HAP)**: The vacuum's error state and cloud online flag are now surfaced on the main service as StatusFault and StatusActive, so HomeKit apps can flag a device that reported an error code or went offline
+- **Fix (Matter)**: Matter accessories no longer report their model as "Unknown" (or "Scene"/"Dock") — the model is resolved from the Roborock products table, the same source the HAP accessories always used
+- **Fix (HAP)**: The firmware version shown in Apple Home no longer stays empty or "Unknown". It was written only once at accessory creation, so a HomeData snapshot without the firmware field (or a later device OTA update) left HomeKit without the real version forever. The version is now refreshed from the device data on every HomeData poll
+
 ## 2.2.3
 
 - **Fix (Matter)**: Matter vacuums no longer sit at "Updating…" in Apple Home with no state, battery, or controls (#59). The initial status was pushed before the Matter endpoint was registered — so the Matter server discarded it — and nothing published it again afterwards. The status (state, battery, charging, error, clean mode) is now seeded right after registration and re-synced on every Roborock HomeData poll, matching the update path the HAP accessories always had

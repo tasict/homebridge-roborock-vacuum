@@ -9,6 +9,34 @@ import RoborockPlatform from "./platform";
 // vacuum is on its way to be washed (26).
 const MOP_WASHING_STATES = [23, 26];
 
+// Consumables reported as remaining-life percentages in the HomeData device
+// status, exposed as HomeKit FilterMaintenance services. The translation keys
+// are the short consumable names from the reset actions ("Filter", ...).
+const CONSUMABLES = [
+  {
+    code: "filter_life",
+    subtype: "filter",
+    nameKey: "reset_filter_work_time",
+    fallbackName: "Filter",
+  },
+  {
+    code: "main_brush_life",
+    subtype: "main-brush",
+    nameKey: "reset_main_brush_work_time",
+    fallbackName: "Main brush",
+  },
+  {
+    code: "side_brush_life",
+    subtype: "side-brush",
+    nameKey: "reset_side_brush_work_time",
+    fallbackName: "Side brush",
+  },
+];
+
+// Remaining life at or below which HomeKit shows the "change filter" alert —
+// matches the Roborock app, which nags when a consumable is nearly used up.
+const CONSUMABLE_CHANGE_THRESHOLD = 5;
+
 export default class RoborockVacuumAccessory {
   private services: Service[] = [];
   private sceneServices: Map<string, Service> = new Map();
@@ -66,6 +94,14 @@ export default class RoborockVacuumAccessory {
       .onSet(this.setActive.bind(this))
       .onGet(this.getActive.bind(this));
 
+    // Device error code and cloud online flag, surfaced on the main service.
+    this.services["Fan"].addOptionalCharacteristic(
+      this.platform.Characteristic.StatusFault
+    );
+    this.services["Fan"].addOptionalCharacteristic(
+      this.platform.Characteristic.StatusActive
+    );
+
     this.services["Battery"] =
       this.accessory.getService(this.platform.Service.Battery) ||
       this.accessory.addService(this.platform.Service.Battery);
@@ -103,6 +139,10 @@ export default class RoborockVacuumAccessory {
 
     // Dock mop-wash switch (only on washing-capable docks)
     this.updateDockWashSwitch();
+
+    // Seed fault/online/consumable state from the already-loaded HomeData
+    // instead of waiting for the first poll.
+    this.updateDeviceState();
   }
 
   /**
@@ -262,6 +302,41 @@ export default class RoborockVacuumAccessory {
         )
       );
 
+      // The firmware version (fv) may be missing from the first HomeData
+      // snapshot and changes after device OTA updates, so refresh it on
+      // every poll instead of trusting the constructor-time value.
+      const firmwareVersion = this.platform.roborockAPI.getVacuumDeviceInfo(
+        this.accessory.context,
+        "fv"
+      );
+      if (firmwareVersion) {
+        this.accessory
+          .getService(this.platform.Service.AccessoryInformation)
+          ?.updateCharacteristic(
+            this.platform.Characteristic.FirmwareRevision,
+            firmwareVersion
+          );
+      }
+
+      this.updateStatusFault(
+        this.platform.roborockAPI.getVacuumDeviceStatus(
+          this.accessory.context,
+          "error_code"
+        )
+      );
+
+      // Cloud-reported online flag; anything but an explicit false counts as
+      // online so an unknown value never flags a healthy device.
+      this.services["Fan"].updateCharacteristic(
+        this.platform.Characteristic.StatusActive,
+        this.platform.roborockAPI.getVacuumDeviceInfo(
+          this.accessory.context,
+          "online"
+        ) !== false
+      );
+
+      this.updateConsumables();
+
       this.platform.log.debug(
         "Device state is " +
           this.state_code_to_state(
@@ -273,6 +348,73 @@ export default class RoborockVacuumAccessory {
       );
     } catch (e) {
       this.platform.log.error("Error updating device state: " + e);
+    }
+  }
+
+  private updateStatusFault(errorCode: unknown) {
+    const code = Number(errorCode);
+    this.services["Fan"].updateCharacteristic(
+      this.platform.Characteristic.StatusFault,
+      Number.isFinite(code) && code !== 0
+        ? this.platform.Characteristic.StatusFault.GENERAL_FAULT
+        : this.platform.Characteristic.StatusFault.NO_FAULT
+    );
+  }
+
+  /**
+   * Expose consumable remaining-life percentages (filter, brushes) as
+   * FilterMaintenance services. A service is only created once its value
+   * shows up in the device status, so models without a consumable in their
+   * schema never get an empty tile.
+   */
+  private updateConsumables() {
+    for (const consumable of CONSUMABLES) {
+      const rawLife = this.platform.roborockAPI.getVacuumDeviceStatus(
+        this.accessory.context,
+        consumable.code
+      );
+      const life = Number(rawLife);
+      if (rawLife === "" || rawLife == null || !Number.isFinite(life)) {
+        continue;
+      }
+
+      let service = this.accessory.getServiceById(
+        this.platform.Service.FilterMaintenance,
+        consumable.subtype
+      );
+      if (!service) {
+        const name =
+          this.platform.roborockAPI.getTranslation?.(consumable.nameKey) ||
+          consumable.fallbackName;
+        service = this.accessory.addService(
+          this.platform.Service.FilterMaintenance,
+          name,
+          consumable.subtype
+        );
+        service.setCharacteristic(this.platform.Characteristic.Name, name);
+        service.addOptionalCharacteristic(
+          this.platform.Characteristic.ConfiguredName
+        );
+        service.setCharacteristic(
+          this.platform.Characteristic.ConfiguredName,
+          name
+        );
+        service.addOptionalCharacteristic(
+          this.platform.Characteristic.FilterLifeLevel
+        );
+      }
+
+      const clampedLife = Math.max(0, Math.min(100, life));
+      service.updateCharacteristic(
+        this.platform.Characteristic.FilterLifeLevel,
+        clampedLife
+      );
+      service.updateCharacteristic(
+        this.platform.Characteristic.FilterChangeIndication,
+        clampedLife <= CONSUMABLE_CHANGE_THRESHOLD
+          ? this.platform.Characteristic.FilterChangeIndication.CHANGE_FILTER
+          : this.platform.Characteristic.FilterChangeIndication.FILTER_OK
+      );
     }
   }
 
@@ -480,6 +622,10 @@ export default class RoborockVacuumAccessory {
               ? this.platform.Characteristic.Active.ACTIVE
               : this.platform.Characteristic.Active.INACTIVE
           );
+        }
+
+        if (data.hasOwnProperty("error_code")) {
+          this.updateStatusFault(data.error_code);
         }
       } else if (id == "HomeData") {
         this.updateDeviceState();
