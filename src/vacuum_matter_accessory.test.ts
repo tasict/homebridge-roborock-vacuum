@@ -41,6 +41,7 @@ function makeRoborockAPI(overrides: Record<string, unknown> = {}) {
     findMe: jest.fn().mockResolvedValue(undefined),
     setCleanModeParameters: jest.fn().mockResolvedValue(undefined),
     getVacuumDeviceData: jest.fn().mockReturnValue({ deviceStatus: {} }),
+    getVacuumDeviceStatus: jest.fn().mockReturnValue(""),
     getSegmentRooms: jest.fn().mockReturnValue(ROOMS),
     getCleanModeCapabilities: jest.fn().mockReturnValue({
       fanOff: 105,
@@ -328,6 +329,77 @@ describe("RoborockVacuumMatterAccessory", () => {
       expect(
         clusterUpdates(updateAccessoryState, "rvcOperationalState")
       ).toContainEqual({ operationalError: { errorStateId: 0 } });
+    });
+  });
+
+  describe("refreshFromDevice", () => {
+    it("publishes the cached status even when it matches the defaults", () => {
+      const CACHE: Record<string, number> = {
+        state: 100, // Fully charged → Docked, the constructor default
+        battery: 100,
+        charge_status: 1,
+        fan_power: 102,
+        water_box_mode: 202,
+        error_code: 0,
+      };
+      const { accessory, roborockAPI, updateAccessoryState } = makeAccessory({
+        getVacuumDeviceStatus: jest.fn(
+          (_duid: string, field: string) => CACHE[field] ?? ""
+        ),
+      });
+
+      accessory.refreshFromDevice(true);
+
+      expect(roborockAPI.getVacuumDeviceStatus).toHaveBeenCalledWith(
+        DUID,
+        "state"
+      );
+      // Docked equals the mirror's starting value, but attribute state
+      // restored from the Matter cache may be stale — the forced refresh
+      // must publish regardless.
+      expect(
+        clusterUpdates(updateAccessoryState, "rvcOperationalState")
+      ).toContainEqual({ operationalState: 66 });
+      expect(clusterUpdates(updateAccessoryState, "rvcRunMode")).toContainEqual(
+        { currentMode: 0 }
+      );
+      expect(
+        clusterUpdates(updateAccessoryState, "powerSource")
+      ).toContainEqual({ batPercentRemaining: 200, batChargeLevel: 0 });
+      expect(
+        clusterUpdates(updateAccessoryState, "rvcCleanMode")
+      ).toContainEqual({ currentMode: 2 });
+    });
+
+    it("keeps change detection without force", () => {
+      const CACHE: Record<string, number> = { state: 100, battery: 100 };
+      const { accessory, updateAccessoryState } = makeAccessory({
+        getVacuumDeviceStatus: jest.fn(
+          (_duid: string, field: string) => CACHE[field] ?? ""
+        ),
+      });
+
+      accessory.refreshFromDevice(true);
+      updateAccessoryState.mockClear();
+
+      // Unchanged values on the periodic (unforced) refresh stay silent.
+      accessory.refreshFromDevice();
+      expect(updateAccessoryState).not.toHaveBeenCalled();
+
+      CACHE.battery = 99;
+      accessory.refreshFromDevice();
+      expect(
+        clusterUpdates(updateAccessoryState, "powerSource")
+      ).toContainEqual({ batPercentRemaining: 198, batChargeLevel: 0 });
+    });
+
+    it("does nothing when the cache has no status yet", () => {
+      const { accessory, updateAccessoryState } = makeAccessory({
+        getVacuumDeviceStatus: jest.fn().mockReturnValue(""),
+      });
+
+      accessory.refreshFromDevice();
+      expect(updateAccessoryState).not.toHaveBeenCalled();
     });
   });
 

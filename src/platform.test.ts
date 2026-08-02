@@ -121,35 +121,112 @@ describe("RoborockPlatform cached accessories", () => {
   });
 });
 
+function setupMatterPlatform({
+  devices = [{ duid: "dev1", name: "V1" }],
+  scenes = (_duid: string): unknown[] => [],
+  statusCache = { state: 5, battery: 80, charge_status: 0 },
+  extraConfig = {},
+}: {
+  devices?: { duid: string; name: string }[];
+  scenes?: (duid: string) => unknown[];
+  statusCache?: Record<string, number>;
+  extraConfig?: Record<string, unknown>;
+} = {}) {
+  const { api, platform } = createPlatform(undefined, {
+    matterDevices: devices.map((device) => device.duid).join(","),
+    ...extraConfig,
+  });
+
+  const matter = {
+    uuid: { generate: jest.fn((value: string) => `m-${value}`) },
+    deviceTypes: { RoboticVacuumCleaner: "rvc", OnOffOutlet: "outlet" },
+    registerPlatformAccessories: jest.fn().mockResolvedValue(undefined),
+    unregisterPlatformAccessories: jest.fn().mockResolvedValue(undefined),
+    updateAccessoryState: jest.fn().mockResolvedValue(undefined),
+  };
+  (api as any).matter = matter;
+  (api as any).isMatterAvailable = () => true;
+  (api as any).isMatterEnabled = () => true;
+
+  const roborockAPI = platform.roborockAPI;
+  roborockAPI.isInited = jest.fn(() => true);
+  roborockAPI.getVacuumList = jest.fn(() => devices);
+  roborockAPI.getProductAttribute = jest.fn(() => "roborock.vacuum.a15");
+  roborockAPI.getVacuumDeviceData = jest.fn(() => ({}));
+  roborockAPI.getScenesForDevice = jest.fn(scenes);
+  roborockAPI.getSegmentRooms = jest.fn(() => []);
+  roborockAPI.getVacuumDeviceStatus = jest.fn(
+    (_duid: string, field: string) => statusCache[field] ?? ""
+  );
+
+  return { api, matter, platform, roborockAPI, statusCache };
+}
+
+describe("RoborockPlatform Matter status updates", () => {
+  it("seeds the vacuum status after Matter registration", async () => {
+    const { matter, platform } = setupMatterPlatform();
+
+    await platform.configurePlugin();
+    await (platform as any).discoverDevices();
+
+    expect(matter.updateAccessoryState).toHaveBeenCalledWith(
+      "m-dev1",
+      "rvcOperationalState",
+      { operationalState: 1 },
+      undefined
+    );
+  });
+
+  it("refreshes the vacuum status when HomeData updates", async () => {
+    const { matter, platform, roborockAPI, statusCache } =
+      setupMatterPlatform();
+
+    await platform.configurePlugin();
+    await (platform as any).discoverDevices();
+    matter.updateAccessoryState.mockClear();
+
+    statusCache.state = 100; // Fully charged → Docked
+    const notify = roborockAPI.setDeviceNotify.mock.calls[0][0];
+    notify("HomeData", {});
+
+    expect(matter.updateAccessoryState).toHaveBeenCalledWith(
+      "m-dev1",
+      "rvcOperationalState",
+      { operationalState: 66 },
+      undefined
+    );
+  });
+
+  it("translates dps status payloads for the Matter vacuums", async () => {
+    const { matter, platform, roborockAPI } = setupMatterPlatform();
+
+    await platform.configurePlugin();
+    await (platform as any).discoverDevices();
+    matter.updateAccessoryState.mockClear();
+
+    const notify = roborockAPI.setDeviceNotify.mock.calls[0][0];
+    notify("CloudMessage", { dps: { "121": 8, "122": 55 } });
+
+    expect(matter.updateAccessoryState).toHaveBeenCalledWith(
+      "m-dev1",
+      "rvcOperationalState",
+      { operationalState: 65 },
+      undefined
+    );
+  });
+});
+
 describe("RoborockPlatform Matter scene buttons", () => {
   it("suffixes duplicate scene names on every device regardless of discovery order", async () => {
-    const { api, platform } = createPlatform(undefined, {
-      matterDevices: "dev1,dev2",
+    const { matter, platform } = setupMatterPlatform({
+      devices: [
+        { duid: "dev1", name: "V1" },
+        { duid: "dev2", name: "V2" },
+      ],
+      scenes: (duid: string) => [
+        { id: duid === "dev1" ? 10 : 20, name: "Clean", enabled: true },
+      ],
     });
-
-    const matter = {
-      uuid: { generate: jest.fn((value: string) => `m-${value}`) },
-      deviceTypes: { RoboticVacuumCleaner: "rvc", OnOffOutlet: "outlet" },
-      registerPlatformAccessories: jest.fn().mockResolvedValue(undefined),
-      unregisterPlatformAccessories: jest.fn().mockResolvedValue(undefined),
-      updateAccessoryState: jest.fn().mockResolvedValue(undefined),
-    };
-    (api as any).matter = matter;
-    (api as any).isMatterAvailable = () => true;
-    (api as any).isMatterEnabled = () => true;
-
-    const roborockAPI = platform.roborockAPI;
-    roborockAPI.isInited = jest.fn(() => true);
-    roborockAPI.getVacuumList = jest.fn(() => [
-      { duid: "dev1", name: "V1" },
-      { duid: "dev2", name: "V2" },
-    ]);
-    roborockAPI.getProductAttribute = jest.fn(() => "roborock.vacuum.a15");
-    roborockAPI.getVacuumDeviceData = jest.fn(() => ({}));
-    roborockAPI.getScenesForDevice = jest.fn((duid: string) => [
-      { id: duid === "dev1" ? 10 : 20, name: "Clean", enabled: true },
-    ]);
-    roborockAPI.getSegmentRooms = jest.fn(() => []);
 
     await platform.configurePlugin();
     await (platform as any).discoverDevices();
@@ -165,34 +242,14 @@ describe("RoborockPlatform Matter scene buttons", () => {
   });
 
   it("does not register scene buttons for devices excluded by matterSceneDevices", async () => {
-    const { api, platform } = createPlatform(undefined, {
-      matterDevices: "dev1,dev2",
-      matterSceneDevices: "dev2",
+    const { matter, platform } = setupMatterPlatform({
+      devices: [
+        { duid: "dev1", name: "V1" },
+        { duid: "dev2", name: "V2" },
+      ],
+      scenes: () => [{ id: 10, name: "Clean", enabled: true }],
+      extraConfig: { matterSceneDevices: "dev2" },
     });
-
-    const matter = {
-      uuid: { generate: jest.fn((value: string) => `m-${value}`) },
-      deviceTypes: { RoboticVacuumCleaner: "rvc", OnOffOutlet: "outlet" },
-      registerPlatformAccessories: jest.fn().mockResolvedValue(undefined),
-      unregisterPlatformAccessories: jest.fn().mockResolvedValue(undefined),
-      updateAccessoryState: jest.fn().mockResolvedValue(undefined),
-    };
-    (api as any).matter = matter;
-    (api as any).isMatterAvailable = () => true;
-    (api as any).isMatterEnabled = () => true;
-
-    const roborockAPI = platform.roborockAPI;
-    roborockAPI.isInited = jest.fn(() => true);
-    roborockAPI.getVacuumList = jest.fn(() => [
-      { duid: "dev1", name: "V1" },
-      { duid: "dev2", name: "V2" },
-    ]);
-    roborockAPI.getProductAttribute = jest.fn(() => "roborock.vacuum.a15");
-    roborockAPI.getVacuumDeviceData = jest.fn(() => ({}));
-    roborockAPI.getScenesForDevice = jest.fn(() => [
-      { id: 10, name: "Clean", enabled: true },
-    ]);
-    roborockAPI.getSegmentRooms = jest.fn(() => []);
 
     await platform.configurePlugin();
     await (platform as any).discoverDevices();

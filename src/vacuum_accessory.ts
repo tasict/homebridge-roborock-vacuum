@@ -426,6 +426,11 @@ export default class RoborockVacuumAccessory {
     return false; // Momentary switch - always return false
   }
 
+  /**
+   * Handle a device-notify payload from the platform. CloudMessage and
+   * LocalMessage payloads arrive unwrapped and with dps ids already
+   * translated to named fields (see the platform's setDeviceNotify fan-out).
+   */
   notifyDeviceUpdater(id: string, data) {
     try {
       if (id == "CloudMessage" || id == "LocalMessage") {
@@ -433,85 +438,47 @@ export default class RoborockVacuumAccessory {
           `Updating accessory with ${id} data: ` + JSON.stringify(data)
         );
 
-        if (data.length > 0) {
-          const messages = data[0];
-          if (messages.hasOwnProperty("state")) {
-            this.services["Fan"].updateCharacteristic(
-              this.platform.Characteristic.Active,
-              this.isCleaningState(messages.state)
-                ? this.platform.Characteristic.Active.ACTIVE
-                : this.platform.Characteristic.Active.INACTIVE
-            );
-
-            this.updateDockWashState(messages.state);
-          }
-
-          if (messages.hasOwnProperty("battery")) {
-            this.services["Battery"].updateCharacteristic(
-              this.platform.Characteristic.BatteryLevel,
-              messages.battery
-            );
-
-            this.services["Battery"].updateCharacteristic(
-              this.platform.Characteristic.StatusLowBattery,
-              messages.battery < 20
-                ? this.platform.Characteristic.StatusLowBattery
-                    .BATTERY_LEVEL_LOW
-                : this.platform.Characteristic.StatusLowBattery
-                    .BATTERY_LEVEL_NORMAL
-            );
-          }
-
-          if (messages.hasOwnProperty("charge_status")) {
-            this.services["Battery"].updateCharacteristic(
-              this.platform.Characteristic.ChargingState,
-              messages.charge_status != 0
-                ? this.platform.Characteristic.ChargingState.CHARGING
-                : this.platform.Characteristic.ChargingState.NOT_CHARGING
-            );
-          }
-
-          if (messages.hasOwnProperty("in_cleaning")) {
-            this.services["Fan"].updateCharacteristic(
-              this.platform.Characteristic.Active,
-              messages.in_cleaning != 0
-                ? this.platform.Characteristic.Active.ACTIVE
-                : this.platform.Characteristic.Active.INACTIVE
-            );
-          }
-        }
-
-        if (data.hasOwnProperty("dps") && data.dps.hasOwnProperty("121")) {
-          this.platform.log.debug(
-            `${this.platform.roborockAPI.getVacuumDeviceInfo(this.accessory.context, "name")} state update to: ${this.state_code_to_state(data.dps["121"])}`
-          );
-
+        if (data.hasOwnProperty("state")) {
           this.services["Fan"].updateCharacteristic(
             this.platform.Characteristic.Active,
-            this.isCleaningState(data.dps["121"])
+            this.isCleaningState(data.state)
               ? this.platform.Characteristic.Active.ACTIVE
               : this.platform.Characteristic.Active.INACTIVE
           );
 
-          this.updateDockWashState(data.dps["121"]);
+          this.updateDockWashState(data.state);
         }
 
-        if (data.hasOwnProperty("dps") && data.dps.hasOwnProperty("122")) {
-          this.platform.log.debug(
-            `${this.platform.roborockAPI.getVacuumDeviceInfo(this.accessory.context, "name")} battery update to: ${data.dps["122"]}`
-          );
-
+        if (data.hasOwnProperty("battery")) {
           this.services["Battery"].updateCharacteristic(
             this.platform.Characteristic.BatteryLevel,
-            data.dps["122"]
+            data.battery
           );
 
           this.services["Battery"].updateCharacteristic(
             this.platform.Characteristic.StatusLowBattery,
-            data.dps["122"] < 20
+            data.battery < 20
               ? this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
               : this.platform.Characteristic.StatusLowBattery
                   .BATTERY_LEVEL_NORMAL
+          );
+        }
+
+        if (data.hasOwnProperty("charge_status")) {
+          this.services["Battery"].updateCharacteristic(
+            this.platform.Characteristic.ChargingState,
+            data.charge_status != 0
+              ? this.platform.Characteristic.ChargingState.CHARGING
+              : this.platform.Characteristic.ChargingState.NOT_CHARGING
+          );
+        }
+
+        if (data.hasOwnProperty("in_cleaning")) {
+          this.services["Fan"].updateCharacteristic(
+            this.platform.Characteristic.Active,
+            data.in_cleaning != 0
+              ? this.platform.Characteristic.Active.ACTIVE
+              : this.platform.Characteristic.Active.INACTIVE
           );
         }
       } else if (id == "HomeData") {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.3
+
+- **Fix (Matter)**: Matter vacuums no longer sit at "Updating…" in Apple Home with no state, battery, or controls (#59). The initial status was pushed before the Matter endpoint was registered — so the Matter server discarded it — and nothing published it again afterwards. The status (state, battery, charging, error, clean mode) is now seeded right after registration and re-synced on every Roborock HomeData poll, matching the update path the HAP accessories always had
+- **Fix (Matter)**: Real-time device broadcasts that arrive as raw protocol ids (dps 120–124) are now translated to named status fields once in the notification fan-out and shared by every accessory, so state, battery, and clean-mode changes reach Matter controllers immediately instead of waiting for the next poll. The HAP accessory consumes the same translated payload, replacing its own inline handling of dps 121/122
+- **Fix (Matter)**: A dock mop-wash switch restored from the Matter cache with a stale On state is now corrected at startup
+
 ## 2.2.2
 
 - **Fix (config UI)**: 2FA verification and login no longer fail with the generic "The Homebridge UI did not respond in time" message on slow connections (#58). Cloud-backed actions (login, 2FA, device list) now get a 60-second budget in the UI instead of 15 seconds — 2FA verify and password login each make two sequential Roborock cloud requests, which could legitimately exceed the old limit. Each underlying cloud request is also capped at 20 seconds, so a genuinely unreachable Roborock server now surfaces the real network error instead of the generic timeout

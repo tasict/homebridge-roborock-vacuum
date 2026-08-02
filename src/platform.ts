@@ -73,6 +73,32 @@ installDeprecationWarningFilter();
 
 const Roborock = require("../roborockLib/roborockAPI").Roborock;
 
+// Spontaneous MQTT status messages arrive as schema-id "dps" maps instead of
+// named get_status fields. Translated once in the device-notify fan-out so
+// every accessory (HAP and Matter) consumes named fields only.
+const DPS_STATUS_FIELDS: Record<string, string> = {
+  "120": "error_code",
+  "121": "state",
+  "122": "battery",
+  "123": "fan_power",
+  "124": "water_box_mode",
+};
+
+function translateDpsFields(payload: Record<string, any>): Record<string, any> {
+  const dps = payload.dps;
+  if (!dps || typeof dps !== "object") {
+    return payload;
+  }
+
+  const translated = { ...payload };
+  for (const [dpsId, field] of Object.entries(DPS_STATUS_FIELDS)) {
+    if (dps[dpsId] !== undefined) {
+      translated[field] = dps[dpsId];
+    }
+  }
+  return translated;
+}
+
 /**
  * Roborock App Platform Plugin for Homebridge
  * Based on https://github.com/homebridge/homebridge-plugin-template
@@ -273,6 +299,32 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     self.roborockAPI.setDeviceNotify(function (id, homeData) {
       self.log.debug(`${id} notifyDeviceUpdater:${JSON.stringify(homeData)}`);
 
+      if (id === "CloudMessage" || id === "LocalMessage") {
+        // Transport messages carry no device id; unwrap the single-element
+        // result array and translate schema-id dps fields once, then fan the
+        // payload out to every accessory (HAP and Matter alike) —
+        // field-level guards make foreign payloads a no-op.
+        const payload = Array.isArray(homeData) ? homeData[0] : homeData;
+        if (!payload || typeof payload !== "object") {
+          return;
+        }
+        const data = translateDpsFields(payload);
+
+        for (const vacuum of self.vacuums) {
+          vacuum.notifyDeviceUpdater(id, data);
+        }
+        for (const [duid, matterVacuum] of self.matterVacuums) {
+          matterVacuum.updateFromRoborockData(data);
+          matterVacuum.updateSupportedAreas(
+            self.roborockAPI.getSegmentRooms?.(duid) ?? []
+          );
+        }
+        for (const dockWash of self.matterDockWash.values()) {
+          dockWash.updateFromRoborockData(data);
+        }
+        return;
+      }
+
       for (const vacuum of self.vacuums) {
         vacuum.notifyDeviceUpdater(id, homeData);
       }
@@ -281,25 +333,18 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         // Scenes load asynchronously; sync the Matter scene buttons once
         // they are available (or when they change).
         self.syncMatterScenes();
+        // The HomeData refresh is the only periodic status source — the
+        // roborockLib get_status interval runs but its results never reach
+        // the cache this plugin reads (gated on an unset config field, and
+        // written to a state path getVacuumDeviceStatus does not read).
+        // Mirror it into the Matter vacuums the same way updateDeviceState
+        // does for the HAP accessories.
+        for (const matterVacuum of self.matterVacuums.values()) {
+          matterVacuum.refreshFromDevice();
+        }
         // Keep the dock-wash switches in line with the cached device state.
         for (const dockWash of self.matterDockWash.values()) {
           dockWash.refreshFromDevice();
-        }
-      } else if (id === "CloudMessage" || id === "LocalMessage") {
-        // Transport messages carry no device id, so fan device-status
-        // payloads out to every Matter vacuum (same as the HAP accessories
-        // above); field-level guards make foreign payloads a no-op.
-        const payload = Array.isArray(homeData) ? homeData[0] : homeData;
-        if (payload && typeof payload === "object") {
-          for (const [duid, matterVacuum] of self.matterVacuums) {
-            matterVacuum.updateFromRoborockData(payload);
-            matterVacuum.updateSupportedAreas(
-              self.roborockAPI.getSegmentRooms?.(duid) ?? []
-            );
-          }
-          for (const dockWash of self.matterDockWash.values()) {
-            dockWash.updateFromRoborockData(payload);
-          }
         }
       }
     });
@@ -619,9 +664,13 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         for (const vacuum of self.matterVacuums.values()) {
           vacuum.refreshCleanModes();
           vacuum.refreshServiceArea();
+          // Status pushed before registration is discarded by the Matter
+          // server, so the initial seed must happen here; force so stale
+          // attribute state restored from the Matter cache is overwritten.
+          vacuum.refreshFromDevice(true);
         }
         for (const dockWash of self.matterDockWash.values()) {
-          dockWash.refreshFromDevice();
+          dockWash.refreshFromDevice(true);
         }
       }
 
@@ -726,11 +775,6 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     const accessory = vacuum.toAccessory();
     this.matterAccessories.set(uuid, accessory);
     toRegister.push(accessory);
-
-    const deviceData = this.roborockAPI.getVacuumDeviceData(duid);
-    if (deviceData && deviceData.deviceStatus) {
-      vacuum.updateFromRoborockData(deviceData.deviceStatus);
-    }
   }
 
   /** Whether the device's scenes should be bridged as Matter buttons. */

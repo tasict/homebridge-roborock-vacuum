@@ -102,17 +102,22 @@ export class RoborockDockWashMatterAccessory extends BaseMatterAccessory {
     this.setOn(MOP_WASHING_STATES.includes(Number(data.state)));
   }
 
-  /** Re-read the cached device state (used after registration and on HomeData). */
-  public refreshFromDevice(): void {
+  /**
+   * Re-read the cached device state. The platform passes force=true once
+   * after registration — attribute state restored from the Matter cache can
+   * disagree with the mirror's constructor default — and no force on the
+   * periodic HomeData refresh.
+   */
+  public refreshFromDevice(force = false): void {
     const state = this.roborockAPI.getVacuumDeviceStatus(this.duid, "state");
     if (state === "" || state === undefined || state === null) {
       return;
     }
-    this.setOn(MOP_WASHING_STATES.includes(Number(state)));
+    this.setOn(MOP_WASHING_STATES.includes(Number(state)), force);
   }
 
-  private setOn(on: boolean): void {
-    if (on === this.currentOn) {
+  private setOn(on: boolean, force = false): void {
+    if (on === this.currentOn && !force) {
       return;
     }
     this.currentOn = on;

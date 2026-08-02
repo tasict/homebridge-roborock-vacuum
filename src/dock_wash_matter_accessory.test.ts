@@ -121,6 +121,17 @@ describe("RoborockDockWashMatterAccessory", () => {
     expect(onOffUpdates(updateAccessoryState)).toEqual([true]);
   });
 
+  it("force-publishes an unchanged state so stale Matter-cache state is corrected", () => {
+    const { accessory, updateAccessoryState } = makeAccessory({
+      getVacuumDeviceStatus: jest.fn().mockReturnValue(8), // not washing
+    });
+
+    // Off equals the mirror's starting value; the forced seed must still
+    // publish it to overwrite whatever the Matter cache restored.
+    accessory.refreshFromDevice(true);
+    expect(onOffUpdates(updateAccessoryState)).toEqual([false]);
+  });
+
   it("ignores an unknown cached state", () => {
     const { accessory, updateAccessoryState } = makeAccessory({
       getVacuumDeviceStatus: jest.fn().mockReturnValue(""),
