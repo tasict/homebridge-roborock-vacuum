@@ -214,6 +214,28 @@ describe("RoborockPlatform Matter status updates", () => {
       undefined
     );
   });
+
+  it("routes duid-tagged transport payloads only to the matching device", async () => {
+    const { matter, platform, roborockAPI } = setupMatterPlatform({
+      devices: [
+        { duid: "dev1", name: "V1" },
+        { duid: "dev2", name: "V2" },
+      ],
+    });
+
+    await platform.configurePlugin();
+    await (platform as any).discoverDevices();
+    matter.updateAccessoryState.mockClear();
+
+    const notify = roborockAPI.setDeviceNotify.mock.calls[0][0];
+    notify("CloudMessage", { dps: { "121": 8 } }, "dev2");
+
+    const touchedUuids = matter.updateAccessoryState.mock.calls.map(
+      (call: unknown[]) => call[0]
+    );
+    expect(touchedUuids).toContain("m-dev2");
+    expect(touchedUuids).not.toContain("m-dev1");
+  });
 });
 
 describe("RoborockPlatform Matter scene buttons", () => {

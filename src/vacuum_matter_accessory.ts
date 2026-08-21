@@ -8,6 +8,7 @@
 import type { API, Logger, MatterRequests } from "homebridge";
 import { MatterStatus } from "homebridge";
 import { BaseMatterAccessory } from "./base_matter_accessory";
+import { RoborockApi } from "./roborock_api";
 
 function getMatterAPI(api: API): NonNullable<API["matter"]> {
   const matter = api.matter;
@@ -197,7 +198,7 @@ function toMatterArea(room: SegmentRoom) {
 
 export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   private readonly duid: string;
-  private readonly roborockAPI: any;
+  private readonly roborockAPI: RoborockApi;
   private readonly platformLog: RoborockPlatformLogger;
   private readonly capabilities: CleanModeCapabilities;
   private readonly supportedCleanModes: ReturnType<
@@ -225,7 +226,7 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
     log: Logger,
     platformLog: RoborockPlatformLogger,
     device: any,
-    roborockAPI: any
+    roborockAPI: RoborockApi
   ) {
     // Home-data device objects carry no model field — the model lives in the
     // products table, resolved via getProductAttribute (same as the HAP side).

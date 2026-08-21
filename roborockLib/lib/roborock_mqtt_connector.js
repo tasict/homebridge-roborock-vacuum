@@ -67,7 +67,7 @@ class roborock_mqtt_connector {
       );
     }, 30000);
 
-    await client.on("connect", (result) => {
+    client.on("connect", (result) => {
       if (typeof result != "undefined") {
         this.subscribeAndMarkConnected(timeout, `client.on("connect")`);
       }
@@ -76,7 +76,7 @@ class roborock_mqtt_connector {
       );
     });
 
-    await client.on("error", (result) => {
+    client.on("error", (result) => {
       this.adapter.catchError(
         `MQTT connection error: ${result}`,
         `client.on("error")`
@@ -85,13 +85,13 @@ class roborock_mqtt_connector {
       this.connected = false;
     });
 
-    await client.on("close", () => {
+    client.on("close", () => {
       this.adapter.log.info(`MQTT connection close.`);
 
       this.connected = false;
     });
 
-    await client.on("reconnect", (error) => {
+    client.on("reconnect", (error) => {
       if (error) {
         this.adapter.catchError(
           `Failed to reconnect to MQTT server.`,
@@ -103,7 +103,7 @@ class roborock_mqtt_connector {
       this.adapter.log.info(`MQTT connection reconnect.`);
     });
 
-    await client.on("offline", (result) => {
+    client.on("offline", (result) => {
       this.adapter.catchError(
         `MQTT connection offline: ${result}`,
         `client.on("offline")`
@@ -229,7 +229,9 @@ class roborock_mqtt_connector {
             this.adapter.log.debug(
               `Cloud message with protocol 102 and id ${dps.id} received. Result: ${JSON.stringify(dps.result)}`
             );
-            this.adapter.setStateAsync("CloudMessage", dps.result);
+            if (this.adapter.deviceNotify) {
+              this.adapter.deviceNotify("CloudMessage", dps.result, duid);
+            }
           } else {
             this.adapter.log.debug(
               `Cloud message with protocol 102 received. Result: ${data.payload}`
@@ -238,7 +240,8 @@ class roborock_mqtt_connector {
             if (this.adapter.deviceNotify !== undefined) {
               this.adapter.deviceNotify(
                 "CloudMessage",
-                JSON.parse(data.payload)
+                JSON.parse(data.payload),
+                duid
               );
             }
           }

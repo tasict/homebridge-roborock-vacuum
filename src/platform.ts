@@ -16,6 +16,7 @@ import { RoborockSceneMatterAccessory } from "./scene_matter_accessory";
 import { RoborockDockWashMatterAccessory } from "./dock_wash_matter_accessory";
 
 import RoborockPlatformLogger from "./logger";
+import { RoborockApi } from "./roborock_api";
 import { RoborockPlatformConfig } from "./types";
 import { PLATFORM_NAME, PLUGIN_NAME } from "./settings";
 import { decryptSession } from "./crypto";
@@ -128,7 +129,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     RoborockDockWashMatterAccessory
   > = new Map();
 
-  public readonly roborockAPI: any;
+  public readonly roborockAPI: RoborockApi;
   public readonly log: RoborockPlatformLogger;
   private readonly homebridgeLogger: Logger;
 
@@ -296,14 +297,15 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
 
     const self = this;
 
-    self.roborockAPI.setDeviceNotify(function (id, homeData) {
+    self.roborockAPI.setDeviceNotify(function (id, homeData, duid) {
       self.log.debug(`${id} notifyDeviceUpdater:${JSON.stringify(homeData)}`);
 
       if (id === "CloudMessage" || id === "LocalMessage") {
-        // Transport messages carry no device id; unwrap the single-element
-        // result array and translate schema-id dps fields once, then fan the
-        // payload out to every accessory (HAP and Matter alike) —
-        // field-level guards make foreign payloads a no-op.
+        // Transport messages belong to one device: unwrap the single-element
+        // result array, translate schema-id dps fields once, and deliver the
+        // payload only to that device's accessories. Applying it to every
+        // accessory would make vacuum B show vacuum A's state and battery.
+        // A payload without a duid (older lib) falls back to the broadcast.
         const payload = Array.isArray(homeData) ? homeData[0] : homeData;
         if (!payload || typeof payload !== "object") {
           return;
@@ -311,16 +313,23 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         const data = translateDpsFields(payload);
 
         for (const vacuum of self.vacuums) {
-          vacuum.notifyDeviceUpdater(id, data);
+          if (duid === undefined || vacuum.duid === duid) {
+            vacuum.notifyDeviceUpdater(id, data);
+          }
         }
-        for (const [duid, matterVacuum] of self.matterVacuums) {
+        for (const [matterDuid, matterVacuum] of self.matterVacuums) {
+          if (duid !== undefined && matterDuid !== duid) {
+            continue;
+          }
           matterVacuum.updateFromRoborockData(data);
           matterVacuum.updateSupportedAreas(
-            self.roborockAPI.getSegmentRooms?.(duid) ?? []
+            self.roborockAPI.getSegmentRooms(matterDuid) ?? []
           );
         }
-        for (const dockWash of self.matterDockWash.values()) {
-          dockWash.updateFromRoborockData(data);
+        for (const [dockDuid, dockWash] of self.matterDockWash) {
+          if (duid === undefined || dockDuid === duid) {
+            dockWash.updateFromRoborockData(data);
+          }
         }
         return;
       }
@@ -416,9 +425,9 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
     this.matterAccessories.set(accessory.UUID, accessory);
   }
 
-  isSupportedDevice(model: string): boolean {
-    //model nust starts with "roborock.vacuum."
-    return model.startsWith("roborock.vacuum.");
+  isSupportedDevice(model: string | null): boolean {
+    // model must start with "roborock.vacuum."
+    return typeof model === "string" && model.startsWith("roborock.vacuum.");
   }
 
   isSkippedDeviceId(deviceId: unknown): boolean {
@@ -699,7 +708,7 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
           }
 
           const vacuum = self.roborockAPI.getVacuumDeviceData(
-            cachedAccessory.context
+            `${cachedAccessory.context}`
           );
 
           if (vacuum === undefined) {

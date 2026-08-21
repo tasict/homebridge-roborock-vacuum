@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.5
+
+- **Fix (HAP/Matter)**: Real-time device messages are now routed to the accessory of the device they came from. Previously every push payload was fanned out to all accessories, so with two or more vacuums one robot could briefly show another robot's state, battery, or error in HomeKit
+- **Fix (HAP)**: Unknown status values are no longer published to HomeKit. Before the first HomeData snapshot arrived, the battery could show 0% (with a normal low-battery flag) and the cleaning state could read as off; those characteristics now update only once the value is actually known, matching the guards the Matter accessories already had. The charging indicator also uses one consistent rule instead of two different comparisons in the create and update paths
+- **Fix (HAP/Matter)**: "Washing the mop" (state 23) now counts as cleaning everywhere. The HAP accessory and the shared API each kept their own cleaning-state table that disagreed on this state, so during a mid-run mop wash the vacuum tile flapped between on and off as push and poll updates alternated
+- **Fix (HAP)**: Removing outdated scene switches no longer skips every second one — the service list was being modified while it was iterated
+- **Fix**: Sending a command to a device shared from another account now logs a warning instead of crashing the command handler (shared devices get an accessory but no control channel)
+- **Change (efficiency)**: Removed a 1-per-second status poll per device whose results were never used (the timer now only exists for the opt-in current-room MQTT telemetry, which is its only consumer). Also removed periodic and startup requests whose responses fed nothing: `get_server_timer`, `get_timer`, `get_multi_maps_list`, the cleaning-history fetch (`get_clean_summary` plus up to 20 `get_clean_record` calls per device), an extra `get_status` round-trip in the room-mapping poll, a per-cycle firmware-update check, and a duplicate scene fetch at startup
+- **Change (efficiency)**: Devices that go offline now stop being polled until they come back — the online flag from every HomeData refresh starts and stops the per-device intervals
+- **Change (internal)**: Removed the inherited ioBroker object layer and other dead code from `roborockLib` (about 1,900 lines), including the unused map parser and packaging helper; the `jszip` dependency is gone. Plugin shutdown now also cancels in-flight request timers. The API surface consumed by the TypeScript plugin is now declared in `src/roborock_api.ts`, so lib-side renames fail the build instead of breaking HomeKit at runtime
+
 ## 2.2.4
 
 - **New Feature (HAP)**: Consumable life (filter, main brush, side brush) is now exposed as HomeKit FilterMaintenance services — remaining life in percent plus a "change filter" alert when a consumable drops to 5% or less. Services are only created for consumables the device actually reports, and their names follow the plugin language

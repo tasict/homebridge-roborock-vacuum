@@ -13,21 +13,10 @@ const roborock_mqtt_connector =
   require("./lib/roborock_mqtt_connector").roborock_mqtt_connector;
 const rrMessage = require("./lib/message").message;
 const vacuum_class = require("./lib/vacuum").vacuum;
-const roborockPackageHelper =
-  require("./lib/roborockPackageHelper").roborockPackageHelper;
 const deviceFeatures = require("./lib/deviceFeatures").deviceFeatures;
 const messageQueueHandler =
   require("./lib/messageQueueHandler").messageQueueHandler;
 const mqtt = require("mqtt");
-
-const dockingStationStates = [
-  "cleanFluidStatus",
-  "waterBoxFilterStatus",
-  "dustBagStatus",
-  "dirtyWaterBoxStatus",
-  "clearWaterBoxStatus",
-  "isUpdownWaterReady",
-];
 
 function md5hex(str) {
   return crypto.createHash("md5").update(str).digest("hex");
@@ -92,7 +81,6 @@ class Roborock {
     this.initializedVacuumDuids = new Set();
     this.socket = null;
 
-    this.objects = {};
     this.states = {};
 
     // Parsed-once cache of the HomeData JSON string. Every hot path
@@ -102,9 +90,6 @@ class Roborock {
 
     this.idCounter = 0;
     this.nonce = crypto.randomBytes(16);
-    this.messageQueue = new Map();
-
-    this.roborockPackageHelper = new roborockPackageHelper(this);
 
     this.localConnector = new rrLocalConnector(this);
     this.rr_mqtt_connector = new roborock_mqtt_connector(this);
@@ -174,18 +159,6 @@ class Roborock {
     clearTimeout(timeout);
   }
 
-  //dummy function for calling setObjectNotExistsAsync
-  async setObjectNotExistsAsync(id, obj) {}
-
-  //dummy function for calling setObjectAsync
-  async setObjectAsync(id, obj) {}
-
-  //dummy function for calling getObjectAsync
-  async getObjectAsync(id) {}
-
-  //dummy function for calling delObjectAsync
-  async delObjectAsync(id) {}
-
   getStateAsync(id) {
     try {
       if (id == "UserData" || id == "clientID") {
@@ -238,7 +211,10 @@ class Roborock {
         this.homedataCache = null; // re-parsed lazily on next read
       }
 
-      if (this.deviceNotify && (id == "HomeData" || id == "CloudMessage")) {
+      // Transport messages (CloudMessage/LocalMessage) notify directly from
+      // the connectors so the device id can be passed along; only the
+      // account-wide HomeData refresh notifies from here.
+      if (this.deviceNotify && id == "HomeData") {
         this.deviceNotify(id, state);
       }
     } catch (error) {
@@ -269,10 +245,6 @@ class Roborock {
     }
   }
 
-  async setStateChangedAsync(id, state) {
-    await this.setStateAsync(id, state);
-  }
-
   async deleteStateAsync(id) {
     try {
       if (id == "UserData" || id == "clientID") {
@@ -295,10 +267,6 @@ class Roborock {
     } catch (error) {
       this.log.error(`deleteStateAsync: ${error}`);
     }
-  }
-
-  subscribeStates(id) {
-    this.log.debug(`subscribeStates: ${id}`);
   }
 
   // Parsed HomeData object (or null). Parses the stored JSON string at most
@@ -539,8 +507,6 @@ class Roborock {
           const homedata = await this.api.get(`v2/user/homes/${homeId}`);
           const homedataResult = homedata.data.result;
 
-          const scene = await this.api.get(`user/scene/home/${homeId}`);
-
           await this.setStateAsync("HomeData", {
             val: JSON.stringify(homedataResult),
             ack: true,
@@ -616,8 +582,6 @@ class Roborock {
 
             await this.rr_mqtt_connector.reconnectClient();
           }, 10800 * 1000);
-
-          this.processScene(scene);
 
           this.homedataInterval = this.setInterval(
             this.updateHomeData.bind(this),
@@ -880,14 +844,6 @@ class Roborock {
       );
 
       await this.vacuums[duid].features.processSupportedFeatures();
-
-      await this.vacuums[duid].setUpObjects(duid);
-
-      // sub to all commands of this robot
-      this.subscribeStates("Devices." + duid + ".commands.*");
-      this.subscribeStates("Devices." + duid + ".reset_consumables.*");
-      this.subscribeStates("Devices." + duid + ".programs.startProgram");
-      this.subscribeStates("Devices." + duid + ".deviceInfo.online");
     }
   }
 
@@ -911,8 +867,6 @@ class Roborock {
 
       await this.updateDataExtraData(duid, this.vacuums[duid]);
       await this.updateDataMinimumData(duid, this.vacuums[duid], robotModel);
-
-      await this.vacuums[duid].getCleanSummary(duid);
     }
   }
 
@@ -939,7 +893,14 @@ class Roborock {
       );
     }
 
-    if (!vacuum.getStatusIntervalHandle) {
+    // The 1 Hz status tick only serves the opt-in current-room MQTT
+    // telemetry (its own seconds-based gating lives in vacuum.getParameter).
+    // Without that feature the interval would fire 86400 no-ops per device
+    // per day, so it is not created at all.
+    const roomMqttEnabled = !!(
+      this.config.currentRoomMqtt && this.config.currentRoomMqtt.enabled
+    );
+    if (roomMqttEnabled && !vacuum.getStatusIntervalHandle) {
       vacuum.getStatusIntervalHandle = this.setInterval(
         this.getStatus.bind(this),
         1000,
@@ -962,95 +923,6 @@ class Roborock {
     if (vacuum.getStatusIntervalHandle) {
       this.clearInterval(vacuum.getStatusIntervalHandle);
       vacuum.getStatusIntervalHandle = null;
-    }
-  }
-
-  async processScene(scene) {
-    if (scene && scene.data.result) {
-      this.log.debug(`Processing scene ${JSON.stringify(scene.data.result)}`);
-
-      const programs = {};
-      for (const program in scene.data.result) {
-        const enabled = scene.data.result[program].enabled;
-        const programID = scene.data.result[program].id;
-        const programName = scene.data.result[program].name;
-        const param = scene.data.result[program].param;
-
-        this.log.debug(`Processing scene param ${param}`);
-        const duid = JSON.parse(param).action.items[0].entityId;
-
-        if (!programs[duid]) {
-          programs[duid] = {};
-        }
-        programs[duid][programID] = programName;
-
-        await this.setObjectNotExistsAsync(`Devices.${duid}.programs`, {
-          type: "folder",
-          common: {
-            name: "Programs",
-          },
-          native: {},
-        });
-
-        await this.setObjectAsync(`Devices.${duid}.programs.${programID}`, {
-          type: "folder",
-          common: {
-            name: programName,
-          },
-          native: {},
-        });
-
-        const enabledPath = `Devices.${duid}.programs.${programID}.enabled`;
-        await this.createStateObjectHelper(
-          enabledPath,
-          "enabled",
-          "boolean",
-          null,
-          null,
-          "value"
-        );
-        this.setStateAsync(enabledPath, enabled, true);
-
-        const items = JSON.parse(param).action.items;
-        for (const item in items) {
-          for (const attribute in items[item]) {
-            const objectPath = `Devices.${duid}.programs.${programID}.items.${item}.${attribute}`;
-            let value = items[item][attribute];
-            const typeOfValue = typeof value;
-
-            await this.createStateObjectHelper(
-              objectPath,
-              attribute,
-              typeOfValue,
-              null,
-              null,
-              "value",
-              true,
-              false
-            );
-
-            if (typeOfValue == "object") {
-              value = value.toString();
-            }
-            this.setStateAsync(objectPath, value, true);
-          }
-        }
-      }
-
-      for (const duid in programs) {
-        const objectPath = `Devices.${duid}.programs.startProgram`;
-        await this.createStateObjectHelper(
-          objectPath,
-          "Start saved program",
-          "string",
-          null,
-          Object.keys(programs[duid])[0],
-          "value",
-          true,
-          true,
-          programs[duid]
-        );
-      }
     }
   }
 
@@ -1190,38 +1062,6 @@ class Roborock {
     return product ? product[attribute] : null;
   }
 
-  startMainUpdateInterval(duid, online) {
-    if (online) {
-      this.log.debug(`${duid} online. Starting update intervals.`);
-      this.startDeviceIntervals(duid);
-    }
-  }
-
-  decodeSniffedMessage(data, devices) {
-    const dataString = JSON.stringify(data);
-
-    const duidMatch = dataString.match(/\/(\w+)\.\w{3}'/);
-    if (duidMatch) {
-      const duidSniffed = duidMatch[1];
-
-      const device = devices.find((device) => device.duid === duidSniffed);
-      if (device) {
-        const localKey = device.localKey;
-
-        const payloadMatch = dataString.match(/'([a-fA-F0-9]+)'/);
-        if (payloadMatch) {
-          const hexPayload = payloadMatch[1];
-          const msg = Buffer.from(hexPayload, "hex");
-
-          const decodedMessage = this.message._decodeMsg(msg, localKey);
-          this.log.debug(
-            `Decoded sniffing message: ${JSON.stringify(JSON.parse(decodedMessage.payload))}`
-          );
-        }
-      }
-    }
-  }
-
   async onlineChecker(duid) {
     const homedata = this.getParsedHomeData();
     if (!homedata) {
@@ -1295,16 +1135,6 @@ class Roborock {
     return received.some((device) => device.duid == duid);
   }
 
-  async getConnector(duid) {
-    const isRemote = await this.isRemoteDevice(duid);
-
-    if (isRemote) {
-      return this.rr_mqtt_connector;
-    } else {
-      return this.localConnector;
-    }
-  }
-
   async manageDeviceIntervals(duid) {
     if (!this.hasInitializedVacuum(duid)) {
       return false;
@@ -1341,12 +1171,6 @@ class Roborock {
       await vacuum.getParameter(duid, "get_room_mapping");
 
       await vacuum.getParameter(duid, "get_consumable");
-
-      await vacuum.getParameter(duid, "get_server_timer");
-
-      await vacuum.getParameter(duid, "get_timer");
-
-      await this.checkForNewFirmware(duid);
 
       switch (robotModel) {
         case "roborock.vacuum.s4":
@@ -1389,7 +1213,6 @@ class Roborock {
   async updateDataExtraData(duid, vacuum) {
     try {
       await this.pollOptional(duid, vacuum, "get_fw_features");
-      await this.pollOptional(duid, vacuum, "get_multi_maps_list");
     } catch (error) {
       this.log.error(
         `Failed to get extra data for ${vacuum}: ${error.message}`
@@ -1403,9 +1226,6 @@ class Roborock {
     }
     if (this.homedataInterval) {
       this.clearInterval(this.homedataInterval);
-    }
-    if (this.commandTimeout) {
-      this.clearTimeout(this.commandTimeout);
     }
 
     this.localConnector.shutdown();
@@ -1425,32 +1245,11 @@ class Roborock {
       this.localMqttClient = null;
     }
 
-    this.messageQueue.forEach(({ timeout102, timeout301 }) => {
-      this.clearTimeout(timeout102);
-      if (timeout301) {
-        this.clearTimeout(timeout301);
-      }
-    });
-
-    // Clear the messageQueue map
-    this.messageQueue.clear();
-
-    if (this.webSocketInterval) {
-      this.clearInterval(this.webSocketInterval);
+    // In-flight request timeouts (10 s each) must not outlive the service.
+    for (const { timeout } of this.pendingRequests.values()) {
+      this.clearTimeout(timeout);
     }
-  }
-
-  checkAndClearRequest(requestId) {
-    const request = this.messageQueue.get(requestId);
-    if (!request?.timeout102 && !request?.timeout301) {
-      this.messageQueue.delete(requestId);
-      // this.log.debug(`Cleared messageQueue`);
-    } else {
-      this.log.debug(
-        `Not clearing messageQueue. ${request.timeout102}  - ${request.timeout301}`
-      );
-    }
-    this.log.debug(`Length of message queue: ${this.messageQueue.size}`);
+    this.pendingRequests.clear();
   }
 
   async updateHomeData(homeId) {
@@ -1467,11 +1266,13 @@ class Roborock {
           });
           this.log.debug(`homedata successfully updated`);
 
-          await this.updateConsumablesPercent(homedata.devices);
-          await this.updateConsumablesPercent(homedata.receivedDevices);
-          await this.updateDeviceInfo(homedata.devices);
-          await this.updateDeviceInfo(homedata.receivedDevices);
           await this.getScenes();
+
+          // Fresh online flags just arrived: stop polling devices that went
+          // offline and resume devices that came back (both idempotent).
+          for (const duid of this.initializedVacuumDuids) {
+            await this.manageDeviceIntervals(duid);
+          }
         } else {
           this.log.warn("homedata failed to download");
         }
@@ -1544,385 +1345,16 @@ class Roborock {
     return true;
   }
 
-  async updateConsumablesPercent(devices) {
-    for (const device of devices) {
-      const duid = device.duid;
-      const deviceStatus = device.deviceStatus;
-
-      for (const [attribute, value] of Object.entries(deviceStatus)) {
-        const targetConsumable = await this.getObjectAsync(
-          `Devices.${duid}.consumables.${attribute}`
-        );
-
-        if (targetConsumable) {
-          const val = value >= 0 && value <= 100 ? parseInt(value) : 0;
-          await this.setStateAsync(`Devices.${duid}.consumables.${attribute}`, {
-            val: val,
-            ack: true,
-          });
-        }
-      }
-    }
-  }
-
-  async updateDeviceInfo(devices) {
-    for (const device in devices) {
-      const duid = devices[device].duid;
-
-      for (const deviceAttribute in devices[device]) {
-        if (typeof devices[device][deviceAttribute] != "object") {
-          let unit;
-          if (deviceAttribute == "activeTime") {
-            unit = "h";
-            devices[device][deviceAttribute] = Math.round(
-              devices[device][deviceAttribute] / 1000 / 60 / 60
-            );
-          }
-          await this.setObjectAsync(
-            "Devices." + duid + ".deviceInfo." + deviceAttribute,
-            {
-              type: "state",
-              common: {
-                name: deviceAttribute,
-                type: this.getType(devices[device][deviceAttribute]),
-                unit: unit,
-                role: "value",
-                read: true,
-                write: false,
-              },
-              native: {},
-            }
-          );
-          this.setStateChangedAsync(
-            "Devices." + duid + ".deviceInfo." + deviceAttribute,
-            { val: devices[device][deviceAttribute], ack: true }
-          );
-        }
-      }
-    }
-  }
-
-  async checkForNewFirmware(duid) {
-    const isLocalDevice = !this.isRemoteDevice(duid);
-
-    if (isLocalDevice) {
-      this.log.debug(`getting firmware status`);
-      if (this.api) {
-        try {
-          const update = await this.api.get(`ota/firmware/${duid}/updatev2`);
-
-          await this.setObjectNotExistsAsync(
-            "Devices." + duid + ".updateStatus",
-            {
-              type: "folder",
-              common: {
-                name: "Update status",
-              },
-              native: {},
-            }
-          );
-
-          for (const state in update.data.result) {
-            await this.setObjectNotExistsAsync(
-              "Devices." + duid + ".updateStatus." + state,
-              {
-                type: "state",
-                common: {
-                  name: state,
-                  type: this.getType(update.data.result[state]),
-                  role: "value",
-                  read: true,
-                  write: false,
-                },
-                native: {},
-              }
-            );
-            this.setStateAsync("Devices." + duid + ".updateStatus." + state, {
-              val: update.data.result[state],
-              ack: true,
-            });
-          }
-        } catch (error) {
-          this.catchError(error, "checkForNewFirmware()", duid);
-        }
-      }
-    }
-  }
-
-  getType(attribute) {
-    // Get the type of the attribute.
-    const type = typeof attribute;
-
-    // Return the appropriate string representation of the type.
-    switch (type) {
-      case "boolean":
-        return "boolean";
-      case "number":
-        return "number";
-      default:
-        return "string";
-    }
-  }
-
-  async createStateObjectHelper(
-    path,
-    name,
-    type,
-    unit,
-    def,
-    role,
-    read,
-    write,
-    states,
-    native = {}
-  ) {
-    const common = {
-      name: name,
-      type: type,
-      unit: unit,
-      role: role,
-      read: read,
-      write: write,
-      states: states,
-    };
-
-    if (def !== undefined && def !== null && def !== "") {
-      common.def = def;
-    }
-
-    this.setObjectAsync(path, {
-      type: "state",
-      common: common,
-      native: native,
-    });
-  }
-
-  async createCommand(duid, command, type, defaultState, states) {
-    const path = `Devices.${duid}.commands.${command}`;
-    const name = this.translations[command];
-
-    const common = {
-      name: name,
-      type: type,
-      role: "value",
-      read: true,
-      write: true,
-      def: defaultState,
-      states: states,
-    };
-
-    this.setObjectAsync(path, {
-      type: "state",
-      common: common,
-      native: {},
-    });
-  }
-
-  async createDeviceStatus(duid, state, type, states, unit) {
-    const path = `Devices.${duid}.deviceStatus.${state}`;
-    const name = this.translations[state];
-
-    const common = {
-      name: name,
-      type: type,
-      role: "value",
-      unit: unit,
-      read: true,
-      write: false,
-      states: states,
-    };
-
-    this.setObjectAsync(path, {
-      type: "state",
-      common: common,
-      native: {},
-    });
-  }
-
-  async createDockingStationObject(duid) {
-    for (const state of dockingStationStates) {
-      const path = `Devices.${duid}.dockingStationStatus.${state}`;
-      const name = this.translations[state];
-
-      this.setObjectNotExistsAsync(path, {
-        type: "state",
-        common: {
-          name: name,
-          type: "number",
-          role: "value",
-          read: true,
-          write: false,
-          states: { 0: "UNKNOWN", 1: "ERROR", 2: "OK" },
-        },
-        native: {},
-      });
-    }
-  }
-
-  async createConsumable(duid, state, type, states, unit) {
-    const path = `Devices.${duid}.consumables.${state}`;
-    const name = this.translations[state];
-
-    const common = {
-      name: name,
-      type: type,
-      role: "value",
-      unit: unit,
-      read: true,
-      write: false,
-      states: states,
-    };
-
-    this.setObjectAsync(path, {
-      type: "state",
-      common: common,
-      native: {},
-    });
-  }
-
-  async createResetConsumables(duid, state) {
-    const path = `Devices.${duid}.resetConsumables.${state}`;
-    const name = this.translations[state];
-
-    this.setObjectNotExistsAsync(path, {
-      type: "state",
-      common: {
-        name: name,
-        type: "boolean",
-        role: "value",
-        read: true,
-        write: true,
-        def: false,
-      },
-      native: {},
-    });
-  }
-
-  async createCleaningRecord(duid, state, type, states, unit) {
-    let start = 0;
-    let end = 19;
-    const robotModel = this.getProductAttribute(duid, "model");
-    if (robotModel == "roborock.vacuum.a97") {
-      start = 1;
-      end = 20;
-    }
-
-    for (let i = start; i <= end; i++) {
-      await this.setObjectAsync(`Devices.${duid}.cleaningInfo.records.${i}`, {
-        type: "folder",
-        common: {
-          name: `Cleaning record ${i}`,
-        },
-        native: {},
-      });
-
-      this.setObjectAsync(
-        `Devices.${duid}.cleaningInfo.records.${i}.${state}`,
-        {
-          type: "state",
-          common: {
-            name: this.translations[state],
-            type: type,
-            role: "value",
-            unit: unit,
-            read: true,
-            write: false,
-            states: states,
-          },
-          native: {},
-        }
-      );
-
-      await this.setObjectAsync(
-        `Devices.${duid}.cleaningInfo.records.${i}.map`,
-        {
-          type: "folder",
-          common: {
-            name: "Map",
-          },
-          native: {},
-        }
-      );
-      for (const name of ["mapBase64", "mapBase64Truncated", "mapData"]) {
-        const objectString = `Devices.${duid}.cleaningInfo.records.${i}.map.${name}`;
-        await this.createStateObjectHelper(
-          objectString,
-          name,
-          "string",
-          null,
-          null,
-          "value",
-          true,
-          false
-        );
-      }
-    }
-  }
-
-  async createCleaningInfo(duid, key, object) {
-    const path = `Devices.${duid}.cleaningInfo.${key}`;
-    const name = this.translations[object.name];
-
-    this.setObjectAsync(path, {
-      type: "state",
-      common: {
-        name: name,
-        type: "number",
-        role: "value",
-        unit: object.unit,
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-  }
-
-  async createBaseRobotObjects(duid) {
-    for (const name of ["mapBase64", "mapBase64Truncated", "mapData"]) {
-      const objectString = `Devices.${duid}.map.${name}`;
-      await this.createStateObjectHelper(
-        objectString,
-        name,
-        "string",
-        null,
-        null,
-        "value",
-        true,
-        false
-      );
-    }
-
-    this.createNetworkInfoObjects(duid);
-  }
-
-  async createBasicVacuumObjects(duid) {
-    this.createNetworkInfoObjects(duid);
-  }
-
-  async createBasicWashingMachineObjects(duid) {
-    this.createNetworkInfoObjects(duid);
-  }
-
-  async createNetworkInfoObjects(duid) {
-    for (const name of ["ssid", "ip", "mac", "bssid", "rssi"]) {
-      const objectString = `Devices.${duid}.networkInfo.${name}`;
-      const objectType = name == "rssi" ? "number" : "string";
-      await this.createStateObjectHelper(
-        objectString,
-        name,
-        objectType,
-        null,
-        null,
-        "value",
-        true,
-        false
-      );
-    }
-  }
-
   async startCommand(duid, command, parameters) {
     if (!this.isInited()) {
       this.log.warn("Adapter not inited. Command not executed.");
+      return;
+    }
+
+    // Shared (received) devices get an accessory but no vacuum instance, so
+    // an unguarded lookup would throw on the first command sent to them.
+    if (!this.vacuums[duid]) {
+      this.log.warn(`${command}: unknown device ${duid}.`);
       return;
     }
 
@@ -1937,29 +1369,14 @@ class Roborock {
         this.vacuums[duid].command(duid, command, parameters);
         break;
 
-      case "get_photo":
-        this.vacuums[duid].getParameter(duid, "get_photo", parameters);
-        break;
-      case "sniffing_decrypt":
-        try {
-          const homedataParsed = this.getParsedHomeData();
-          if (homedataParsed) {
-            this.decodeSniffedMessage(parameters, homedataParsed.devices || []);
-            this.decodeSniffedMessage(
-              parameters,
-              homedataParsed.receivedDevices || []
-            );
-          }
-        } catch (error) {
-          this.log.error("Failed to decode/decrypt sniffing message. " + error);
-        }
-
-        break;
       default:
         this.log.warn(`Command ${command} not found.`);
     }
   }
 
+  // Single source of truth for "the cleaning session is running" — the HAP
+  // and Matter accessories must not keep their own diverging copies of this
+  // table, or push and poll updates flap the same characteristic.
   isCleaning(state) {
     switch (state) {
       case 4: // Remote Control
@@ -1971,6 +1388,7 @@ class Roborock {
       case 16: // Go To
       case 17: // Zone Clean
       case 18: // Room Clean
+      case 23: // Washing the mop (mid-run dock stop; the session continues)
       case 26: // Going to wash the mop
         return true;
       default:
@@ -2106,52 +1524,6 @@ class Roborock {
       return this.idCounter;
     }
     return this.idCounter++;
-  }
-
-  async setupBasicObjects() {
-    await this.setObjectAsync("Devices", {
-      type: "folder",
-      common: {
-        name: "Devices",
-      },
-      native: {},
-    });
-
-    await this.setObjectAsync("UserData", {
-      type: "state",
-      common: {
-        name: "UserData string",
-        type: "string",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-
-    await this.setObjectAsync("HomeData", {
-      type: "state",
-      common: {
-        name: "HomeData string",
-        type: "string",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
-
-    await this.setObjectAsync("clientID", {
-      type: "state",
-      common: {
-        name: "Client ID",
-        type: "string",
-        role: "value",
-        read: true,
-        write: false,
-      },
-      native: {},
-    });
   }
 
   async catchError(error, attribute, duid, model) {
@@ -2578,7 +1950,11 @@ class Roborock {
 
     const device = this.getVacuumDeviceData(duid);
 
-    if (device.deviceStatus && device.deviceStatus[propertyID] != undefined) {
+    if (
+      device &&
+      device.deviceStatus &&
+      device.deviceStatus[propertyID] != undefined
+    ) {
       return device.deviceStatus[propertyID];
     }
 

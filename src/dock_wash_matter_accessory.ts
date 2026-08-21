@@ -13,12 +13,13 @@
 import type { API, Logger } from "homebridge";
 import { MatterStatus } from "homebridge";
 import { BaseMatterAccessory } from "./base_matter_accessory";
+import { RoborockApi } from "./roborock_api";
 
 const MOP_WASHING_STATES = [23, 26];
 
 export class RoborockDockWashMatterAccessory extends BaseMatterAccessory {
   private readonly duid: string;
-  private readonly roborockAPI: any;
+  private readonly roborockAPI: RoborockApi;
   private currentOn = false;
 
   constructor(
@@ -26,7 +27,7 @@ export class RoborockDockWashMatterAccessory extends BaseMatterAccessory {
     log: Logger,
     device: any,
     displayName: string,
-    roborockAPI: any
+    roborockAPI: RoborockApi
   ) {
     const matter = api.matter;
     if (!matter) {

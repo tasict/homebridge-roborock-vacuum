@@ -43,6 +43,11 @@ export default class RoborockVacuumAccessory {
   private currentScenes: any[] = [];
   private dockWashService?: Service;
 
+  /** Device id this accessory belongs to (context holds the duid string). */
+  public get duid(): string {
+    return `${this.accessory.context}`;
+  }
+
   constructor(
     private readonly platform: RoborockPlatform,
     private readonly accessory: PlatformAccessory<String>
@@ -56,24 +61,16 @@ export default class RoborockVacuumAccessory {
       ?.setCharacteristic(this.platform.Characteristic.Manufacturer, "Roborock")
       .setCharacteristic(
         this.platform.Characteristic.Model,
-        this.platform.roborockAPI.getProductAttribute(
-          accessory.context,
-          "model"
-        ) || "Unknown"
+        this.platform.roborockAPI.getProductAttribute(this.duid, "model") ||
+          "Unknown"
       )
       .setCharacteristic(
         this.platform.Characteristic.SerialNumber,
-        this.platform.roborockAPI.getVacuumDeviceInfo(
-          accessory.context,
-          "sn"
-        ) || "Unknown"
+        `${this.platform.roborockAPI.getVacuumDeviceInfo(this.duid, "sn") || "Unknown"}`
       )
       .setCharacteristic(
         this.platform.Characteristic.FirmwareRevision,
-        this.platform.roborockAPI.getVacuumDeviceInfo(
-          accessory.context,
-          "fv"
-        ) || "Unknown"
+        `${this.platform.roborockAPI.getVacuumDeviceInfo(this.duid, "fv") || "Unknown"}`
       );
 
     this.services["Fan"] =
@@ -83,10 +80,7 @@ export default class RoborockVacuumAccessory {
     // This is what is displayed as the default name on the Home app
     this.services["Fan"].setCharacteristic(
       this.platform.Characteristic.Name,
-      this.platform.roborockAPI.getVacuumDeviceInfo(
-        accessory.context,
-        "name"
-      ) || "Roborock Vacuum"
+      `${this.platform.roborockAPI.getVacuumDeviceInfo(this.duid, "name") || "Roborock Vacuum"}`
     );
 
     this.services["Fan"]
@@ -106,33 +100,9 @@ export default class RoborockVacuumAccessory {
       this.accessory.getService(this.platform.Service.Battery) ||
       this.accessory.addService(this.platform.Service.Battery);
 
-    this.services["Battery"].setCharacteristic(
-      this.platform.Characteristic.BatteryLevel,
-      this.platform.roborockAPI.getVacuumDeviceStatus(
-        accessory.context,
-        "battery"
-      ) || 0
-    );
-
-    this.services["Battery"].setCharacteristic(
-      this.platform.Characteristic.StatusLowBattery,
-      this.platform.roborockAPI.getVacuumDeviceStatus(
-        accessory.context,
-        "battery"
-      ) < 20
-        ? this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
-        : this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL
-    );
-
-    this.services["Battery"].setCharacteristic(
-      this.platform.Characteristic.ChargingState,
-      this.platform.roborockAPI.getVacuumDeviceStatus(
-        accessory.context,
-        "charge_status"
-      ) == 1
-        ? this.platform.Characteristic.ChargingState.CHARGING
-        : this.platform.Characteristic.ChargingState.NOT_CHARGING
-    );
+    // Battery/charging characteristics are seeded by the updateDeviceState()
+    // call below, which only publishes values that are actually known —
+    // publishing the "" unknown sentinel here would read as 0 % battery.
 
     // Initialize scene switches
     this.updateSceneSwitches();
@@ -153,7 +123,7 @@ export default class RoborockVacuumAccessory {
   updateDockWashSwitch() {
     try {
       const supported = this.platform.roborockAPI.isDockWashSupported(
-        this.accessory.context
+        this.duid
       );
       const existingService = this.accessory.getServiceById(
         this.platform.Service.Switch,
@@ -163,7 +133,7 @@ export default class RoborockVacuumAccessory {
       if (!supported) {
         if (existingService) {
           this.platform.log.debug(
-            `Removing dock wash switch for device ${this.accessory.context}`
+            `Removing dock wash switch for device ${this.duid}`
           );
           this.accessory.removeService(existingService);
         }
@@ -179,7 +149,7 @@ export default class RoborockVacuumAccessory {
         this.platform.roborockAPI.getTranslation("app_start_wash");
 
       this.platform.log.debug(
-        `Adding dock wash switch '${switchName}' for device ${this.accessory.context}`
+        `Adding dock wash switch '${switchName}' for device ${this.duid}`
       );
 
       const switchService =
@@ -216,9 +186,9 @@ export default class RoborockVacuumAccessory {
   async setDockWash(value: CharacteristicValue) {
     try {
       if (value) {
-        await this.platform.roborockAPI.app_start_wash(this.accessory.context);
+        await this.platform.roborockAPI.app_start_wash(this.duid);
       } else {
-        await this.platform.roborockAPI.app_stop_wash(this.accessory.context);
+        await this.platform.roborockAPI.app_stop_wash(this.duid);
       }
     } catch (error) {
       this.platform.log.error(`Error setting dock wash: ${error}`);
@@ -235,18 +205,15 @@ export default class RoborockVacuumAccessory {
 
   isWashing(): boolean {
     return this.isWashingState(
-      this.platform.roborockAPI.getVacuumDeviceStatus(
-        this.accessory.context,
-        "state"
-      )
+      this.platform.roborockAPI.getVacuumDeviceStatus(this.duid, "state")
     );
   }
 
-  isWashingState(state: number): boolean {
-    return MOP_WASHING_STATES.includes(state);
+  isWashingState(state: number | string): boolean {
+    return MOP_WASHING_STATES.includes(Number(state));
   }
 
-  private updateDockWashState(state: number) {
+  private updateDockWashState(state: number | string) {
     this.dockWashService?.updateCharacteristic(
       this.platform.Characteristic.On,
       this.isWashingState(state)
@@ -255,58 +222,62 @@ export default class RoborockVacuumAccessory {
 
   updateDeviceState() {
     try {
-      this.services["Fan"].updateCharacteristic(
-        this.platform.Characteristic.Active,
-        this.platform.roborockAPI.isCleaning(
-          this.platform.roborockAPI.getVacuumDeviceStatus(
-            this.accessory.context,
-            "state"
-          )
-        )
-          ? this.platform.Characteristic.Active.ACTIVE
-          : this.platform.Characteristic.Active.INACTIVE
+      // getVacuumDeviceStatus returns "" while a value is unknown (no
+      // HomeData yet, or the model's schema lacks the field). Skip those
+      // updates instead of publishing garbage like 0 % battery — the Matter
+      // accessories already guard the same way.
+      const state = this.platform.roborockAPI.getVacuumDeviceStatus(
+        this.duid,
+        "state"
       );
+      if (state !== "") {
+        this.services["Fan"].updateCharacteristic(
+          this.platform.Characteristic.Active,
+          this.platform.roborockAPI.isCleaning(state)
+            ? this.platform.Characteristic.Active.ACTIVE
+            : this.platform.Characteristic.Active.INACTIVE
+        );
 
-      this.services["Battery"].updateCharacteristic(
-        this.platform.Characteristic.BatteryLevel,
-        this.platform.roborockAPI.getVacuumDeviceStatus(
-          this.accessory.context,
-          "battery"
-        ) || 0
-      );
+        this.updateDockWashState(state);
+      }
 
-      this.services["Battery"].updateCharacteristic(
-        this.platform.Characteristic.StatusLowBattery,
-        this.platform.roborockAPI.getVacuumDeviceStatus(
-          this.accessory.context,
-          "battery"
-        ) < 20
-          ? this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
-          : this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL
+      const rawBattery = this.platform.roborockAPI.getVacuumDeviceStatus(
+        this.duid,
+        "battery"
       );
+      const battery = Number(rawBattery);
+      if (rawBattery !== "" && Number.isFinite(battery)) {
+        this.services["Battery"].updateCharacteristic(
+          this.platform.Characteristic.BatteryLevel,
+          battery
+        );
 
-      this.services["Battery"].updateCharacteristic(
-        this.platform.Characteristic.ChargingState,
-        this.platform.roborockAPI.getVacuumDeviceStatus(
-          this.accessory.context,
-          "charge_status"
-        ) != 0
-          ? this.platform.Characteristic.ChargingState.CHARGING
-          : this.platform.Characteristic.ChargingState.NOT_CHARGING
-      );
+        this.services["Battery"].updateCharacteristic(
+          this.platform.Characteristic.StatusLowBattery,
+          battery < 20
+            ? this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
+            : this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL
+        );
+      }
 
-      this.updateDockWashState(
-        this.platform.roborockAPI.getVacuumDeviceStatus(
-          this.accessory.context,
-          "state"
-        )
+      const chargeStatus = this.platform.roborockAPI.getVacuumDeviceStatus(
+        this.duid,
+        "charge_status"
       );
+      if (chargeStatus !== "") {
+        this.services["Battery"].updateCharacteristic(
+          this.platform.Characteristic.ChargingState,
+          Number(chargeStatus) != 0
+            ? this.platform.Characteristic.ChargingState.CHARGING
+            : this.platform.Characteristic.ChargingState.NOT_CHARGING
+        );
+      }
 
       // The firmware version (fv) may be missing from the first HomeData
       // snapshot and changes after device OTA updates, so refresh it on
       // every poll instead of trusting the constructor-time value.
       const firmwareVersion = this.platform.roborockAPI.getVacuumDeviceInfo(
-        this.accessory.context,
+        this.duid,
         "fv"
       );
       if (firmwareVersion) {
@@ -314,37 +285,26 @@ export default class RoborockVacuumAccessory {
           .getService(this.platform.Service.AccessoryInformation)
           ?.updateCharacteristic(
             this.platform.Characteristic.FirmwareRevision,
-            firmwareVersion
+            `${firmwareVersion}`
           );
       }
 
       this.updateStatusFault(
-        this.platform.roborockAPI.getVacuumDeviceStatus(
-          this.accessory.context,
-          "error_code"
-        )
+        this.platform.roborockAPI.getVacuumDeviceStatus(this.duid, "error_code")
       );
 
       // Cloud-reported online flag; anything but an explicit false counts as
       // online so an unknown value never flags a healthy device.
       this.services["Fan"].updateCharacteristic(
         this.platform.Characteristic.StatusActive,
-        this.platform.roborockAPI.getVacuumDeviceInfo(
-          this.accessory.context,
-          "online"
-        ) !== false
+        this.platform.roborockAPI.getVacuumDeviceInfo(this.duid, "online") !==
+          false
       );
 
       this.updateConsumables();
 
       this.platform.log.debug(
-        "Device state is " +
-          this.state_code_to_state(
-            this.platform.roborockAPI.getVacuumDeviceStatus(
-              this.accessory.context,
-              "state"
-            )
-          )
+        "Device state is " + this.state_code_to_state(Number(state))
       );
     } catch (e) {
       this.platform.log.error("Error updating device state: " + e);
@@ -370,7 +330,7 @@ export default class RoborockVacuumAccessory {
   private updateConsumables() {
     for (const consumable of CONSUMABLES) {
       const rawLife = this.platform.roborockAPI.getVacuumDeviceStatus(
-        this.accessory.context,
+        this.duid,
         consumable.code
       );
       const life = Number(rawLife);
@@ -425,13 +385,13 @@ export default class RoborockVacuumAccessory {
     try {
       // Get scenes for this device
       const deviceScenes = this.platform.roborockAPI.getScenesForDevice(
-        this.accessory.context
+        this.duid
       );
 
       // Check if scenes have changed
       if (this.scenesChanged(deviceScenes)) {
         this.platform.log.debug(
-          `Updating scene switches for device ${this.accessory.context}`
+          `Updating scene switches for device ${this.duid}`
         );
 
         // Remove existing scene switches that are no longer available
@@ -440,7 +400,7 @@ export default class RoborockVacuumAccessory {
         for (const scene of deviceScenes) {
           try {
             const sceneId = scene.id.toString();
-            const sceneName = scene.name.replaceAll(" ", "_");
+            const sceneName = scene.name.replace(/ /g, "_");
             if (!this.sceneServices.has(sceneId) && scene.enabled) {
               this.platform.log.debug(
                 `Adding scene switch for: ${scene.name} (ID: ${sceneId})`
@@ -484,8 +444,10 @@ export default class RoborockVacuumAccessory {
           }
         }
 
-        //Remove scene switches that are no longer available
-        this.accessory.services.forEach((service) => {
+        // Remove scene switches that are no longer available. Iterate a
+        // copy: removeService splices the live services array, and mutating
+        // it mid-forEach skips the element after every removed one.
+        [...this.accessory.services].forEach((service) => {
           if (
             service instanceof this.platform.Service.Switch &&
             service.subtype?.startsWith("scene-")
@@ -583,7 +545,7 @@ export default class RoborockVacuumAccessory {
         if (data.hasOwnProperty("state")) {
           this.services["Fan"].updateCharacteristic(
             this.platform.Characteristic.Active,
-            this.isCleaningState(data.state)
+            this.platform.roborockAPI.isCleaning(data.state)
               ? this.platform.Characteristic.Active.ACTIVE
               : this.platform.Characteristic.Active.INACTIVE
           );
@@ -644,10 +606,10 @@ export default class RoborockVacuumAccessory {
       this.platform.log.debug("Setting active to " + value);
 
       if (value == this.platform.Characteristic.Active.ACTIVE) {
-        await this.platform.roborockAPI.app_start(this.accessory.context);
+        await this.platform.roborockAPI.app_start(this.duid);
       } else {
-        await this.platform.roborockAPI.app_stop(this.accessory.context);
-        await this.platform.roborockAPI.app_charge(this.accessory.context);
+        await this.platform.roborockAPI.app_stop(this.duid);
+        await this.platform.roborockAPI.app_charge(this.duid);
       }
 
       this.services["Fan"].updateCharacteristic(
@@ -699,30 +661,11 @@ export default class RoborockVacuumAccessory {
   }
 
   isCleaning(): boolean {
-    return this.isCleaningState(
-      this.platform.roborockAPI.getVacuumDeviceStatus(
-        this.accessory.context,
-        "state"
-      )
+    // Single source of truth for the cleaning-state table is
+    // roborockAPI.isCleaning — a local copy here diverged from it once and
+    // made push and poll updates flap the Fan Active characteristic.
+    return this.platform.roborockAPI.isCleaning(
+      this.platform.roborockAPI.getVacuumDeviceStatus(this.duid, "state")
     );
-  }
-
-  isCleaningState(state: number): boolean {
-    switch (state) {
-      case 4: // Remote Control
-      case 5: // Cleaning
-      case 6: // Returning Dock
-      case 7: // Manual Mode
-      case 11: // Spot Cleaning
-      case 15: // Docking
-      case 16: // Go To
-      case 17: // Zone Clean
-      case 18: // Room Clean
-      case 23: // Washing the mop
-      case 26: // Going to wash the mop
-        return true;
-      default:
-        return false;
-    }
   }
 }

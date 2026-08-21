@@ -190,6 +190,46 @@ describe("Roborock.getCleanModeCapabilities", () => {
   });
 });
 
+describe("Roborock.isCleaning", () => {
+  it("treats mop washing (23) and going to wash (26) as cleaning", () => {
+    const api = createApi();
+    expect(api.isCleaning(23)).toBe(true);
+    expect(api.isCleaning(26)).toBe(true);
+    expect(api.isCleaning(8)).toBe(false);
+    expect(api.isCleaning("")).toBe(false);
+  });
+});
+
+describe("Roborock.startCommand", () => {
+  it("warns instead of throwing for a device without a vacuum instance", async () => {
+    const api = createApi();
+    api.bInited = true;
+
+    await expect(
+      api.startCommand("shared1", "app_start", null)
+    ).resolves.toBeUndefined();
+    expect(api.log.warn).toHaveBeenCalledWith(
+      expect.stringContaining("unknown device")
+    );
+  });
+});
+
+describe("Roborock.clearTimersAndIntervals", () => {
+  it("clears in-flight request timers on shutdown", () => {
+    const api = createApi();
+    const timeout = setTimeout(() => {}, 1000000);
+    api.pendingRequests.set(7, {
+      resolve: jest.fn(),
+      reject: jest.fn(),
+      timeout,
+    });
+
+    api.clearTimersAndIntervals();
+
+    expect(api.pendingRequests.size).toBe(0);
+  });
+});
+
 describe("Roborock.isSharedDevice", () => {
   it("matches only devices in receivedDevices", () => {
     const api = createApi();

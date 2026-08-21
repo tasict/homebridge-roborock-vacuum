@@ -13,12 +13,13 @@
 import type { API, Logger } from "homebridge";
 import { MatterStatus } from "homebridge";
 import { BaseMatterAccessory } from "./base_matter_accessory";
+import { RoborockApi } from "./roborock_api";
 
 const RESET_DELAY_MS = 1000;
 
 export class RoborockSceneMatterAccessory extends BaseMatterAccessory {
   private readonly sceneId: string;
-  private readonly roborockAPI: any;
+  private readonly roborockAPI: RoborockApi;
 
   constructor(
     api: API,
@@ -26,7 +27,7 @@ export class RoborockSceneMatterAccessory extends BaseMatterAccessory {
     device: any,
     scene: any,
     displayName: string,
-    roborockAPI: any
+    roborockAPI: RoborockApi
   ) {
     const matter = api.matter;
     if (!matter) {

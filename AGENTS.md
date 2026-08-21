@@ -70,8 +70,8 @@ Guidance for agentic coding assistants working in this repository.
   - `npm test -- path/to/file.test.ts --runInBand`
 
 ### Current Test State
-- No committed Jest suites currently exist under `src/`
-- `roborockLib/test.js` is integration-style and not a Jest spec
+- Jest suites live as `*.test.ts` colocated in `src/` (platform, accessories, protocol helpers, upstream-ported lib behavior)
+- `roborockLib/test.js` is integration-style and not a Jest spec (excluded via `testPathIgnorePatterns`)
 - Prefer new tests as `*.test.ts` colocated in `src/`
 
 ## CI Parity (local)

@@ -192,7 +192,7 @@ class localConnector {
                     resolve(result);
 
                     if (this.adapter.deviceNotify !== undefined) {
-                      this.adapter.deviceNotify("LocalMessage", result);
+                      this.adapter.deviceNotify("LocalMessage", result, duid);
                     }
                   }
                 }
@@ -552,34 +552,35 @@ class localConnector {
   safeRemovePkcs7(buf) {
     if (!buf || buf.length === 0) return Buffer.alloc(0);
     const pad = buf[buf.length - 1];
-    // 僅在 1..16 且最後 pad 個 byte 都等於 pad 時才移除
+    // Only strip when pad is 1..16 and the last `pad` bytes all equal pad.
     if (pad > 0 && pad <= 16) {
       for (let i = 0; i < pad; i++) {
-        if (buf[buf.length - 1 - i] !== pad) return buf; // padding 形狀不對，視為無 padding
+        if (buf[buf.length - 1 - i] !== pad) return buf; // malformed padding; treat as unpadded
       }
       return buf.slice(0, buf.length - pad);
     }
-    return buf; // 看起來沒有標準 PKCS#7 padding
+    return buf; // no standard PKCS#7 padding present
   }
 
   decryptECB(encrypted, aesKey) {
-    // --- 1) Key/輸入檢查 ---
+    // AES-128 requires a 16-byte key.
     const key = Buffer.isBuffer(aesKey) ? aesKey : Buffer.from(aesKey);
     if (key.length !== 16) {
-      // AES-128 需要 16 bytes 的 key
       return null;
     }
 
     const input = Buffer.isBuffer(encrypted)
       ? encrypted
-      : Buffer.from(encrypted, "latin1"); // "binary" 等同 latin1
+      : Buffer.from(encrypted, "latin1"); // "binary" is an alias of latin1
     if (input.length === 0 || input.length % 16 !== 0) {
-      // 密文長度不是 16 的倍數，多半是封包不完整；丟回 null 讓上層忽略本次
+      // Ciphertext not a multiple of 16 bytes usually means a truncated
+      // packet; return null so the caller ignores this broadcast.
       return null;
     }
 
     try {
-      // --- 2) 固定用 Buffer，關閉自動 padding（你要自己移除） ---
+      // Auto-padding is disabled because the padding is stripped manually
+      // (safeRemovePkcs7 tolerates unpadded payloads).
       const decipher = crypto.createDecipheriv("aes-128-ecb", key, null);
       decipher.setAutoPadding(false);
 
@@ -589,20 +590,12 @@ class localConnector {
       ]);
       const unpadded = this.safeRemovePkcs7(decryptedBuf);
 
-      // 若原協定內容是 UTF-8，這裡再轉字串；否則直接回傳 Buffer 讓上層處理
       return unpadded.toString("utf8");
     } catch (err) {
-      // 例如 wrong final block length、key 不對等情況
-      // 這裡不要讓程式炸掉，直接忽略這個封包
-      // 你也可以在這裡做一次 debug log
-      // console.debug("decryptECB error:", err);
+      // e.g. wrong final block length or a wrong key — a malformed LAN
+      // broadcast must not crash discovery, so just drop the packet.
       return null;
     }
-  }
-
-  removePadding(str) {
-    const paddingLength = str.charCodeAt(str.length - 1);
-    return str.slice(0, -paddingLength);
   }
 
   clearLocalDevicedTimeout() {

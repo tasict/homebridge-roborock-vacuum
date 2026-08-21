@@ -316,46 +316,6 @@ class message {
     return messageParser.parse(data);
   }
 
-  resolve102Message(messageID, message, secure = false) {
-    return new Promise((resolve, reject) => {
-      if (message?.code) {
-        reject(
-          new Error(
-            `There was an error processing the request with id ${messageID} error: ${JSON.stringify(message)}`
-          )
-        );
-      } else {
-        if (secure) {
-          if (message[0] !== "ok") {
-            reject(message);
-          }
-        } else {
-          resolve(message);
-        }
-      }
-    });
-  }
-
-  resolve301Message(messageID, message) {
-    return new Promise((resolve, reject) => {
-      this.adapter.clearTimeout(
-        this.adapter.messageQueue.get(messageID)?.timeout301
-      );
-      (this.adapter.messageQueue.get(messageID) || {}).timeout301 = null;
-      this.adapter.checkAndClearRequest(messageID);
-
-      if (message?.code) {
-        reject(
-          new Error(
-            `There was an error processing the request with id ${messageID} error: ${JSON.stringify(message)}`
-          )
-        );
-      } else {
-        resolve(message);
-      }
-    });
-  }
-
   _encodeTimestamp(timestamp) {
     const hex = timestamp.toString(16).padStart(8, "0").split("");
     return [5, 6, 3, 7, 1, 2, 0, 4].map((idx) => hex[idx]).join("");
