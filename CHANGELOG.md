@@ -2,6 +2,8 @@
 
 ## 2.2.6
 
+- **New Feature**: The Roborock region is now detected automatically from the account email when no endpoint is configured — the config UI's Region selector gains an "Auto detect (recommended)" option and new installs no longer need to know which server their account lives on. An explicitly chosen region keeps working exactly as before, and if detection fails the plugin falls back to the previous US default with a hint to pin the region manually. Two-factor login also benefits: it now sends the account's real registered country from the detection response instead of guessing it from the endpoint host (which mapped every EU account to Germany)
+
 - **Fix (HAP/Matter)**: Recognize the state codes newer models report, ported from the python-roborock reference tables. State 25 (a second "washing the mop" code used by the Q7 Max family), 33/34 (attaching/detaching the mop mid-run) and the B01/Q10-generation mopping states (6301–6310) now count as an active cleaning session, so HomeKit no longer shows those vacuums as off while they are mopping. The dock mop-wash switch also follows states 25 and 6310, and the Matter operational state maps the new codes (mopping → Running, duster wash → Cleaning mop)
 
 ## 2.2.5

@@ -134,16 +134,12 @@ async function request(path, body) {
     ? CLOUD_REQUEST_TIMEOUT_MS
     : REQUEST_TIMEOUT_MS;
   try {
-    return await withTimeout(
-      window.homebridge.request(path, body),
-      timeoutMs,
-      {
-        ok: false,
-        message:
-          "The Homebridge UI did not respond in time. " +
-          "Close this window, reload the Homebridge UI page and try again.",
-      }
-    );
+    return await withTimeout(window.homebridge.request(path, body), timeoutMs, {
+      ok: false,
+      message:
+        "The Homebridge UI did not respond in time. " +
+        "Close this window, reload the Homebridge UI page and try again.",
+    });
   } catch (error) {
     return { ok: false, message: error.message || "Request failed." };
   }
@@ -177,9 +173,11 @@ async function loadConfig() {
   if (config.email) {
     elements.email.value = config.email;
   }
-  elements.baseUrl.value = normalizeBaseUrl(
-    config.baseURL || "https://usiot.roborock.com"
-  );
+  // An absent baseURL means auto-detection; keep the auto option selected
+  // instead of forcing the US endpoint.
+  elements.baseUrl.value = config.baseURL
+    ? normalizeBaseUrl(config.baseURL)
+    : "";
   elements.language.value = config.language || "en";
   renderSkipDevices(config.skipDevices);
   matterSelected.clear();
@@ -764,7 +762,7 @@ async function saveCredentials() {
 
   await updatePluginConfig({
     email,
-    baseURL,
+    baseURL: baseURL || undefined,
     language: getLanguage(),
     skipDevices,
     matterDevices: matterDevices || undefined,
@@ -785,7 +783,7 @@ async function login() {
     await updatePluginConfig({
       email,
       password,
-      baseURL,
+      baseURL: baseURL || undefined,
       encryptedToken: result.encryptedToken,
     });
     showToast("success", result.message || "Login successful.");
@@ -841,7 +839,7 @@ async function verifyTwoFactorCode() {
   if (result.ok) {
     await updatePluginConfig({
       email,
-      baseURL,
+      baseURL: baseURL || undefined,
       encryptedToken: result.encryptedToken,
     });
     showToast("success", result.message || "Verification successful.");

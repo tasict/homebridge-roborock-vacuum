@@ -48,8 +48,7 @@
       },
       "baseURL": {
         "type": "string",
-        "default": "https://usiot.roborock.com",
-        "description": "Roborock API endpoint: https://usiot.roborock.com (US), https://euiot.roborock.com (EU), https://cniot.roborock.com (CN), https://api.roborock.com (Asia)"
+        "description": "Roborock API endpoint. Leave empty to auto-detect the region from the account email. Manual values: https://usiot.roborock.com (US), https://euiot.roborock.com (EU), https://cniot.roborock.com (CN), https://api.roborock.com (Asia)"
       },
       "language": {
         "title": "Language",

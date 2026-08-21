@@ -129,6 +129,9 @@ class Roborock {
     this.name = "roborock";
     this.deviceNotify = null;
     this.baseURL = options.baseURL || "usiot.roborock.com";
+    // Region discovered from the account email when no baseURL is
+    // configured; carries the account's real country/countryCode for 2FA.
+    this.accountRegion = null;
 
     this.userData = options.userData || null;
     this.authState = {
@@ -425,6 +428,27 @@ class Roborock {
     }
 
     this.instance = clientID;
+
+    // Region auto-detection: without a configured baseURL, ask the cloud
+    // which regional endpoint serves this account. An explicit baseURL in
+    // the config always wins; on failure the previous default (US) is kept
+    // so behavior never regresses.
+    if (!this.config.baseURL) {
+      const discovered = await roborockAuth.discoverAccountRegion(
+        this.config.username,
+        this.log
+      );
+      if (discovered) {
+        this.accountRegion = discovered;
+        this.baseURL = discovered.baseURL;
+        this.log.info(`Roborock region auto-detected: ${discovered.baseURL}`);
+      } else {
+        this.log.warn(
+          `Could not auto-detect the Roborock region for this account; using ${this.baseURL}. ` +
+            `Set baseURL in the plugin config to pin a region.`
+        );
+      }
+    }
 
     // Initialize the login API (which is needed to get access to the real API).
     this.loginApi = roborockAuth.createLoginApi({
@@ -774,7 +798,17 @@ class Roborock {
       throw new Error("Missing login signature.");
     }
 
-    const region = roborockAuth.getRegionConfig(this.baseURL);
+    // The discovered region carries the account's real country/countryCode;
+    // the host-based mapping is only a guess (e.g. every euiot account maps
+    // to DE/49) and stays as the fallback.
+    const guess = roborockAuth.getRegionConfig(this.baseURL);
+    const region = {
+      country:
+        (this.accountRegion && this.accountRegion.country) || guess.country,
+      countryCode:
+        (this.accountRegion && this.accountRegion.countryCode) ||
+        guess.countryCode,
+    };
     const loginResult = await roborockAuth.loginWithCode(this.loginApi, {
       email: this.config.username,
       code,
