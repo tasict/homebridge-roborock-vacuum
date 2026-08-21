@@ -5,9 +5,11 @@ import RoborockPlatform from "./platform";
  * An instance of this class is created for each accessory the platform registers.
  * Each accessory may expose multiple services of different service types.
  */
-// Roborock device states meaning the dock is washing the mop (23) or the
-// vacuum is on its way to be washed (26).
-const MOP_WASHING_STATES = [23, 26];
+// Roborock device states meaning the dock is washing the mop (23, and its
+// alias 25 reported by the Q7 Max family), the vacuum is on its way to be
+// washed (26), or a B01-generation device is back at the dock washing the
+// duster (6310).
+const MOP_WASHING_STATES = [23, 25, 26, 6310];
 
 // Consumables reported as remaining-life percentages in the HomeData device
 // status, exposed as HomeKit FilterMaintenance services. The translation keys
@@ -651,10 +653,28 @@ export default class RoborockVacuumAccessory {
       18: "Room Clean",
       22: "Empying dust container",
       23: "Washing the mop",
+      25: "Washing the mop",
       26: "Going to wash the mop",
       28: "In call",
       29: "Mapping",
+      30: "Egg attack",
+      32: "Patrol",
+      33: "Attaching the mop",
+      34: "Detaching the mop",
       100: "Fully Charged",
+      101: "Device offline",
+      103: "Locked",
+      202: "Air drying stopping",
+      6301: "Mopping",
+      6302: "Cleaning and mopping (vacuum phase)",
+      6303: "Cleaning and mopping (mop phase)",
+      6304: "Segment mopping",
+      6305: "Segment cleaning and mopping (vacuum phase)",
+      6306: "Segment cleaning and mopping (mop phase)",
+      6307: "Zoned mopping",
+      6308: "Zoned cleaning and mopping (vacuum phase)",
+      6309: "Zoned cleaning and mopping (mop phase)",
+      6310: "Washing the duster at dock",
     };
 
     return RoborockStateCodes[code] || "Unknown";

@@ -15,7 +15,9 @@ import { MatterStatus } from "homebridge";
 import { BaseMatterAccessory } from "./base_matter_accessory";
 import { RoborockApi } from "./roborock_api";
 
-const MOP_WASHING_STATES = [23, 26];
+// 23 = washing the mop, 25 = its Q7-Max-family alias, 26 = going to wash,
+// 6310 = B01-generation "back at dock washing the duster".
+const MOP_WASHING_STATES = [23, 25, 26, 6310];
 
 export class RoborockDockWashMatterAccessory extends BaseMatterAccessory {
   private readonly duid: string;

@@ -46,16 +46,34 @@ const ROBOROCK_STATE_TO_OPERATIONAL_STATE: Record<number, number> = {
   18: 1, // Room Clean → Running
   22: 67, // Emptying dust container → EmptyingDustBin
   23: 68, // Washing the mop → Cleaning mop
+  25: 68, // Washing the mop (Q7 Max family alias) → Cleaning mop
   26: 1, // Going to wash the mop → Running (still driving to the dock)
   28: 0, // In call → Stopped
   29: 1, // Mapping → Running
+  33: 1, // Attaching the mop → Running (mid-run transition)
+  34: 1, // Detaching the mop → Running (mid-run transition)
   100: 66, // Fully Charged → Docked
+  101: 0, // Device offline → Stopped
+  103: 0, // Locked → Stopped
+  // B01/Q10-generation mopping states (python-roborock RoborockStateCode).
+  6301: 1, // Mopping → Running
+  6302: 1, // Clean+mop, vacuum phase → Running
+  6303: 1, // Clean+mop, mop phase → Running
+  6304: 1, // Segment mopping → Running
+  6305: 1, // Segment clean+mop, vacuum phase → Running
+  6306: 1, // Segment clean+mop, mop phase → Running
+  6307: 1, // Zoned mopping → Running
+  6308: 1, // Zoned clean+mop, vacuum phase → Running
+  6309: 1, // Zoned clean+mop, mop phase → Running
+  6310: 68, // Back at dock washing the duster → Cleaning mop
 };
 
 // Roborock states that report the Cleaning run mode (state 29, Mapping, is
 // active motion too — Mapping is not a selectable mode, so it reports as
-// Cleaning).
-const CLEANING_RUN_MODE_STATES = [5, 11, 17, 18, 29];
+// Cleaning). The 63xx entries are the B01/Q10-generation mopping states.
+const CLEANING_RUN_MODE_STATES = [
+  5, 11, 17, 18, 29, 6301, 6302, 6303, 6304, 6305, 6306, 6307, 6308, 6309,
+];
 
 // Status fields mirrored into Matter attributes; refreshFromDevice reads them
 // from the HomeData cache by name (mapped to schema ids by the API).

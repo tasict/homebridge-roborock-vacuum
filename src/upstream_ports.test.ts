@@ -198,6 +198,24 @@ describe("Roborock.isCleaning", () => {
     expect(api.isCleaning(8)).toBe(false);
     expect(api.isCleaning("")).toBe(false);
   });
+
+  it("covers the newer state codes from python-roborock", () => {
+    const api = createApi();
+    // Washing-the-mop alias (Q7 Max family) and mop attach/detach.
+    expect(api.isCleaning(25)).toBe(true);
+    expect(api.isCleaning(33)).toBe(true);
+    expect(api.isCleaning(34)).toBe(true);
+    // B01/Q10-generation mopping family.
+    for (const state of [
+      6301, 6302, 6303, 6304, 6305, 6306, 6307, 6308, 6309, 6310,
+    ]) {
+      expect(api.isCleaning(state)).toBe(true);
+    }
+    // Non-cleaning newcomers stay off.
+    expect(api.isCleaning(32)).toBe(false); // patrol
+    expect(api.isCleaning(101)).toBe(false); // device offline
+    expect(api.isCleaning(103)).toBe(false); // locked
+  });
 });
 
 describe("Roborock.startCommand", () => {

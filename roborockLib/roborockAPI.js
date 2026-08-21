@@ -1377,6 +1377,9 @@ class Roborock {
   // Single source of truth for "the cleaning session is running" — the HAP
   // and Matter accessories must not keep their own diverging copies of this
   // table, or push and poll updates flap the same characteristic.
+  // State names follow python-roborock's RoborockStateCode, the maintained
+  // reference for codes newer models report (25, 33/34, and the 63xx
+  // mopping family used by B01/Q10-generation devices).
   isCleaning(state) {
     switch (state) {
       case 4: // Remote Control
@@ -1389,7 +1392,20 @@ class Roborock {
       case 17: // Zone Clean
       case 18: // Room Clean
       case 23: // Washing the mop (mid-run dock stop; the session continues)
+      case 25: // Washing the mop (alias reported by the Q7 Max family)
       case 26: // Going to wash the mop
+      case 33: // Attaching the mop (mid-run, e.g. G20S Ultra)
+      case 34: // Detaching the mop (mid-run, e.g. G20S Ultra)
+      case 6301: // Mopping
+      case 6302: // Clean+mop, vacuum phase
+      case 6303: // Clean+mop, mop phase
+      case 6304: // Segment mopping
+      case 6305: // Segment clean+mop, vacuum phase
+      case 6306: // Segment clean+mop, mop phase
+      case 6307: // Zoned mopping
+      case 6308: // Zoned clean+mop, vacuum phase
+      case 6309: // Zoned clean+mop, mop phase
+      case 6310: // Back at dock washing the duster (session continues)
         return true;
       default:
         return false;

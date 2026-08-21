@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.6
+
+- **Fix (HAP/Matter)**: Recognize the state codes newer models report, ported from the python-roborock reference tables. State 25 (a second "washing the mop" code used by the Q7 Max family), 33/34 (attaching/detaching the mop mid-run) and the B01/Q10-generation mopping states (6301–6310) now count as an active cleaning session, so HomeKit no longer shows those vacuums as off while they are mopping. The dock mop-wash switch also follows states 25 and 6310, and the Matter operational state maps the new codes (mopping → Running, duster wash → Cleaning mop)
+
 ## 2.2.5
 
 - **Fix (HAP/Matter)**: Real-time device messages are now routed to the accessory of the device they came from. Previously every push payload was fanned out to all accessories, so with two or more vacuums one robot could briefly show another robot's state, battery, or error in HomeKit

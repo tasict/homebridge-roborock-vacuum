@@ -108,6 +108,16 @@ describe("RoborockDockWashMatterAccessory", () => {
     expect(onOffUpdates(updateAccessoryState)).toEqual([true, false]);
   });
 
+  it("recognizes the washing-state alias (25) and the B01 duster wash (6310)", () => {
+    const { accessory, updateAccessoryState } = makeAccessory();
+
+    accessory.updateFromRoborockData({ state: 25 }); // Q7-Max-family alias → on
+    accessory.updateFromRoborockData({ state: 8 }); // Charging → off
+    accessory.updateFromRoborockData({ state: 6310 }); // B01 duster wash → on
+
+    expect(onOffUpdates(updateAccessoryState)).toEqual([true, false, true]);
+  });
+
   it("refreshes from the cached device state", () => {
     const { accessory, roborockAPI, updateAccessoryState } = makeAccessory({
       getVacuumDeviceStatus: jest.fn().mockReturnValue(23),
