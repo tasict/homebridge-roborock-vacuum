@@ -141,6 +141,9 @@ class vacuum {
             // another account can never be local.
             if (attribute == "ip" && !this.adapter.isSharedDevice(duid)) {
               this.adapter.localDevices[duid] = networkInfo[attribute];
+              if (typeof this.adapter.persistLocalDevices === "function") {
+                this.adapter.persistLocalDevices();
+              }
             }
             this.adapter.setStateAsync(
               `Devices.${duid}.networkInfo.${attribute}`,

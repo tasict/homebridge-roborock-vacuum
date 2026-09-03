@@ -118,24 +118,30 @@ describe("Roborock.handleApiUnauthorized", () => {
     jest.restoreAllMocks();
   });
 
-  it("ignores errors that are not HTTP 401", () => {
+  it("ignores errors that are not HTTP 401", async () => {
     const api = createApi();
-    expect(api.handleApiUnauthorized(new Error("boom"), "test")).toBe(false);
+    expect(await api.handleApiUnauthorized(new Error("boom"), "test")).toBe(
+      false
+    );
     expect(
-      api.handleApiUnauthorized(
+      await api.handleApiUnauthorized(
         { response: { status: 500, headers: {} } },
         "test"
       )
     ).toBe(false);
   });
 
-  it("clears the session and stops HomeData polling on a session 401", () => {
+  it("clears the session and stops HomeData polling on a session 401", async () => {
     const api = createApi();
     api.deleteStateAsync = jest.fn();
     api.userData = { rriot: {} };
     api.homedataInterval = setInterval(() => {}, 1000000);
+    // The login API confirms the rejection, so this is a revoked session.
+    api.loginApi = {
+      get: jest.fn().mockResolvedValue({ data: { code: 2010 } }),
+    };
 
-    const handled = api.handleApiUnauthorized(
+    const handled = await api.handleApiUnauthorized(
       { response: { status: 401, headers: {} } },
       "updateHomeData"
     );
@@ -147,7 +153,7 @@ describe("Roborock.handleApiUnauthorized", () => {
 
     // Subsequent 401s stay handled without re-clearing anything.
     expect(
-      api.handleApiUnauthorized(
+      await api.handleApiUnauthorized(
         { response: { status: 401, headers: {} } },
         "getScenes"
       )
@@ -155,13 +161,13 @@ describe("Roborock.handleApiUnauthorized", () => {
     expect(api.deleteStateAsync).toHaveBeenCalledTimes(1);
   });
 
-  it("diagnoses clock skew instead of clearing the session", () => {
+  it("diagnoses clock skew instead of clearing the session", async () => {
     const api = createApi();
     api.deleteStateAsync = jest.fn();
     api.userData = { rriot: {} };
 
     const serverDate = new Date(Date.now() + 300 * 1000).toUTCString();
-    const handled = api.handleApiUnauthorized(
+    const handled = await api.handleApiUnauthorized(
       { response: { status: 401, headers: { date: serverDate } } },
       "updateHomeData"
     );

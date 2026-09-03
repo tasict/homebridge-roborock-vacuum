@@ -115,6 +115,33 @@ Pairing is one-time per node — switching a device between HAP and Matter later
 - Scene buttons require the **separate bridge pairing** (step 5) and appear as plain on/off switches in the controller.
 - Multi-floor maps are not exposed (rooms come from the currently active map), and zone cleaning, consumables and dock controls other than the mop-wash switch are not available over Matter yet.
 
+## Cloud outages and local-only mode
+
+Roborock's cloud is required to log in and to read your device list, but it is
+not required to _control_ a vacuum: once the plugin knows a device's local key,
+it talks to the robot directly over your LAN.
+
+The plugin caches the device list, the local keys and each vacuum's last known
+LAN address on disk (owner-readable only) after every successful cloud
+refresh. If the Roborock cloud is unreachable when Homebridge starts, the
+plugin falls back to that cache and starts in **local-only mode**:
+
+- your vacuums still appear in HomeKit, and start/stop/dock commands work over the LAN;
+- vacuums are found by UDP discovery, or dialed at their cached address when
+  discovery finds nothing (another VLAN, or port 58866 in use);
+- cloud-only features are unavailable until the cloud returns — scenes, push
+  status updates, and the cloud online flag;
+- the plugin keeps retrying in the background, so cloud features come back on
+  their own without a Homebridge restart. If the login itself failed during
+  the outage, the plugin logs in again by itself once the cloud answers (a
+  pending two-factor prompt still needs the Config UI).
+
+The log says which mode you are in (`Starting adapter finished in local-only
+mode (cloud unreachable).`). Two caveats: the plugin needs **one successful
+online start** to create the cache, so a brand-new install cannot start offline,
+and a vacuum that is shared from another Roborock account can only be controlled
+through the cloud.
+
 ## Dock mop-wash switch
 
 On vacuums whose dock can wash the mop (G10, S7 Pro/MaxV Ultra, S7 Max Ultra, S8 Pro Ultra, Q Revo family, …) the plugin adds a switch that starts and stops a dock mop wash:
