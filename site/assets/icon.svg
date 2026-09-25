@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8604f"/>
+      <stop offset="1" stop-color="#dc2f28"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef1f6"/>
+    </linearGradient>
+    <linearGradient id="home" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4574b"/>
+      <stop offset="1" stop-color="#d42c25"/>
+    </linearGradient>
+    <filter id="soft" x="-50%" y="-200%" width="200%" height="500%"><feGaussianBlur stdDeviation="9"/></filter>
+  </defs>
+  <rect width="512" height="512" rx="114" fill="url(#tile)"/>
+  <g fill="#fff">
+    <path d="M106 112q4 22 26 26q-22 4-26 26q-4-22-26-26q22-4 26-26z"/>
+    <path d="M428 94q3 15 18 18q-15 3-18 18q-3-15-18-18q15-3 18-18z" opacity=".9"/>
+    <path d="M96 394q2 10 12 12q-10 2-12 12q-2-10-12-12q10-2 12-12z" opacity=".8"/>
+  </g>
+  <ellipse cx="256" cy="458" rx="130" ry="14" fill="#8e1510" opacity=".45" filter="url(#soft)"/>
+  <path d="M112 192a172 172 0 0 1 288 0" fill="none" stroke="#303843" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="256" cy="282" r="166" fill="url(#body)"/>
+  <circle cx="256" cy="282" r="146" fill="none" stroke="#dfe3ea" stroke-width="3"/>
+  <circle cx="256" cy="206" r="45" fill="#fff" stroke="#dce0e7" stroke-width="4"/>
+  <circle cx="256" cy="206" r="15" fill="#e2362e"/>
+  <path d="M256 280 322 336H304V386H208V336H190Z" fill="url(#home)" stroke="url(#home)" stroke-width="10" stroke-linejoin="round"/>
+</svg>

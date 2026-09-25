@@ -1,17 +1,20 @@
 {
   "name": "homebridge-roborock-vacuum",
+  "displayName": "Homebridge Roborock Vacuum",
   "version": "2.2.7",
-  "description": "Roborock Vacuum Cleaner - plugin for Homebridge.",
+  "description": "Homebridge plugin that brings Roborock robot vacuums to Apple Home over HomeKit or Matter, with local control on your network.",
   "license": "MIT",
   "keywords": [
+    "homebridge",
     "homebridge-plugin",
-    "vacuum cleaner",
-    "roborock app",
-    "roborock vacuum",
-    "supports-hap",
-    "support-matter",
+    "homekit",
+    "matter",
     "roborock",
-    "homekit"
+    "roborock vacuum",
+    "robot vacuum",
+    "vacuum cleaner",
+    "supports-hap",
+    "supports-matter"
   ],
   "repository": {
     "type": "git",
@@ -20,14 +23,28 @@
   "bugs": {
     "url": "https://github.com/tasict/homebridge-roborock-vacuum/issues"
   },
-  "homepage": "https://github.com/tasict/homebridge-roborock-vacuum",
+  "homepage": "https://tasict.github.io/homebridge-roborock-vacuum/",
+  "funding": [
+    {
+      "type": "individual",
+      "url": "https://tasict.bobaboba.me"
+    },
+    {
+      "type": "paypal",
+      "url": "https://paypal.me/tasict"
+    }
+  ],
   "main": "dist/index.js",
   "files": [
     "CHANGELOG.md",
     "config.schema.json",
     "dist",
+    "!dist/**/*.test.*",
     "homebridge-ui",
-    "roborockLib"
+    "roborockLib",
+    "!roborockLib/data",
+    "!roborockLib/lib/sniffing",
+    "!roborockLib/test.js"
   ],
   "engines": {
     "homebridge": "^1.6.0 || ^2.0.0-beta.0",

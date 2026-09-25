@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.8
+
+- **New**: Project website in English, Traditional Chinese and Japanese: [tasict.github.io/homebridge-roborock-vacuum](https://tasict.github.io/homebridge-roborock-vacuum/). It is now the plugin's homepage in the Homebridge UI
+- **New**: You can now support the plugin by buying me a boba (paid by card, no PayPal account needed) or with PayPal: from the bottom of the plugin settings, the donate link in the Homebridge UI, the README or GitHub's Sponsor button
+- **Change (packaging)**: The npm package no longer contains a development test script, a leftover client ID file or the protocol sniffing helper; it now holds only what the plugin needs to run
+- **Docs**: README rewritten around the current feature set — supported models (with corrected names such as Qrevo Curv), requirements matching the supported Homebridge and Node.js versions, the sign-in flow, and a reference of every config option. The header image is now the plugin's own icon
+- **Change (config UI)**: The settings page describes what it is for, and has a small support footer below the settings
+
 ## 2.2.7
 
 - **Fix (connectivity)**: The plugin no longer fails to start when the Roborock cloud is unreachable. Startup used to abandon everything after the home-data request timed out (`AxiosError: timeout of 20000ms exceeded`, `ECONNRESET`), so no accessories were registered and every command was refused with "Adapter not inited" — even though the vacuum was reachable on the LAN the whole time. The home data (device list and local keys) is now cached on disk, and when the cloud fetch fails the plugin starts in **local-only mode** from that cache: it still runs LAN discovery, connects to each vacuum over the local protocol, publishes the accessories, and accepts start/stop/dock commands. Cloud-only features (scenes, push updates, fresh online flags) resume by themselves once the cloud answers again, without a Homebridge restart. One successful online start is needed to seed the cache; with no cache the plugin stays idle as before, now with a message that says why
@@ -55,7 +63,7 @@ Maintenance release — no functional changes to device control. Reworks the fou
 
 ## 2.2.0
 
-Connectivity and device-support release, porting recent fixes from the python-roborock and ioBroker.roborock upstream projects (see `UpstreamReview-2026-07.md`).
+Connectivity and device-support release, porting recent fixes from the python-roborock and ioBroker.roborock upstream projects.
 
 - **New Feature**: Docks introduced since 2025 (Qrevo Curv, Saros 10, Qrevo S5V, Saros 20, and other new dock type codes 10–40) now get their dust-collection, mop-wash, and drying features — including the dock mop-wash switch. Unknown future dock types default to full-featured instead of featureless
 - **New Feature**: Room names now resolve for vacuums shared from another Roborock account (fetched via the device-share rooms API), so Matter room cleaning and the current-room publisher work on shared devices

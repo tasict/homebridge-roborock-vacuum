@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roborock Vacuum for Homebridge：把 Roborock 掃地機器人接進 Apple「家庭」</title>
+<meta name="description" content="免費的 Homebridge 外掛，透過 HomeKit 或 Matter 把 Roborock 掃地機器人放進 Apple「家庭」App；Roborock 雲端斷線時，也能在家裡的網路上繼續控制。">
+<link rel="canonical" href="https://tasict.github.io/homebridge-roborock-vacuum/zh-TW/">
+<link rel="alternate" hreflang="en" href="https://tasict.github.io/homebridge-roborock-vacuum/">
+<link rel="alternate" hreflang="zh-TW" href="https://tasict.github.io/homebridge-roborock-vacuum/zh-TW/">
+<link rel="alternate" hreflang="ja" href="https://tasict.github.io/homebridge-roborock-vacuum/ja/">
+<link rel="alternate" hreflang="x-default" href="https://tasict.github.io/homebridge-roborock-vacuum/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Roborock Vacuum for Homebridge：把 Roborock 掃地機器人接進 Apple「家庭」">
+<meta property="og:description" content="免費的 Homebridge 外掛，透過 HomeKit 或 Matter 把 Roborock 掃地機器人放進 Apple「家庭」App；Roborock 雲端斷線時，也能在家裡的網路上繼續控制。">
+<meta property="og:url" content="https://tasict.github.io/homebridge-roborock-vacuum/zh-TW/">
+<meta property="og:image" content="https://tasict.github.io/homebridge-roborock-vacuum/assets/og.png">
+<meta property="og:locale" content="zh_TW">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1413" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/icon.png">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="wrap masthead">
+  <a class="wordmark" href="./"><img src="../assets/icon.svg" alt="" width="30" height="30">Roborock Vacuum</a>
+  <a href="https://github.com/tasict/homebridge-roborock-vacuum">原始碼</a>
+  <a class="tip head-tip" href="https://tasict.bobaboba.me" aria-label="請我喝珍奶"><img src="../assets/boba.png" alt="" width="24" height="24"><span>請我喝珍奶</span></a>
+  <details class="lang">
+    <summary aria-label="語言"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7.5"/><path d="M2.5 10h15M10 2.5c2.2 2.3 3.2 4.8 3.2 7.5s-1 5.2-3.2 7.5c-2.2-2.3-3.2-4.8-3.2-7.5s1-5.2 3.2-7.5z"/></svg><span>繁體中文</span></summary>
+    <ul><li><a href="../" hreflang="en" lang="en">English</a></li><li><a href="../zh-TW/" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page">繁體中文</a></li><li><a href="../ja/" hreflang="ja" lang="ja">日本語</a></li></ul>
+  </details>
+</header>
+
+<main>
+<div class="wrap">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <h1 id="hero-title">你的 Roborock，<br>放進「家庭」App。</h1>
+      <p class="lede">這是一個 Homebridge 外掛，透過 HomeKit 或 Matter 把 Roborock 掃地機器人放進「家庭」App。用 Siri 或自動化開始打掃；就算 Roborock 雲端斷線，也能在家裡的網路上繼續控制。</p>
+      <div class="actions">
+        <a class="btn" href="#start">開始使用</a>
+        <a href="https://github.com/tasict/homebridge-roborock-vacuum">在 GitHub 查看</a>
+      </div>
+      <p class="fine">免費、開放原始碼。支援 Homebridge 1.6 以上；Matter 需要 Homebridge 2。</p>
+    </div>
+    <div class="stage" data-demo data-state="docked" data-t='{&quot;rooms&quot;:{&quot;living&quot;:&quot;客廳&quot;,&quot;kitchen&quot;:&quot;廚房&quot;,&quot;bedroom&quot;:&quot;臥室&quot;,&quot;study&quot;:&quot;書房&quot;},&quot;st&quot;:{&quot;docked&quot;:&quot;在充電座上&quot;,&quot;charging&quot;:&quot;充電中&quot;,&quot;cleaning&quot;:&quot;正在打掃{room}&quot;,&quot;returning&quot;:&quot;正在返回充電座&quot;,&quot;paused&quot;:&quot;已暫停&quot;},&quot;start&quot;:&quot;開始&quot;,&quot;pause&quot;:&quot;暫停&quot;,&quot;all&quot;:&quot;全屋&quot;,&quot;some&quot;:&quot;4 間中的 {n} 間&quot;,&quot;battery&quot;:&quot;電量 {b}&quot;}'>
+      <svg class="plan" viewBox="0 0 480 300" role="img" aria-label="有四個房間的平面圖。掃地機器人離開充電座，打掃選定的房間後返回。">
+      <rect class="walls" x="10" y="10" width="460" height="280" rx="14"/>
+      <g class="areas">
+        <g class="area" data-room="living" data-rect="20 20 255 145"><rect x="20" y="20" width="255" height="145" rx="6"/><text x="147.5" y="92.5">客廳</text></g>
+        <g class="area" data-room="kitchen" data-rect="285 20 175 120"><rect x="285" y="20" width="175" height="120" rx="6"/><text x="372.5" y="80">廚房</text></g>
+        <g class="area" data-room="bedroom" data-rect="285 150 175 130"><rect x="285" y="150" width="175" height="130" rx="6"/><text x="372.5" y="215">臥室</text></g>
+        <g class="area" data-room="study" data-rect="20 175 255 105"><rect x="20" y="175" width="255" height="105" rx="6"/><text x="147.5" y="227.5">書房</text></g>
+      </g>
+      <g class="doors">
+        <rect class="door" data-door="living kitchen 280 105" x="275" y="85" width="10" height="40"/>
+        <rect class="door" data-door="living study 215 170" x="190" y="165" width="50" height="10"/>
+        <rect class="door" data-door="kitchen bedroom 372 145" x="347" y="140" width="50" height="10"/>
+        <rect class="door" data-door="study bedroom 280 228" x="275" y="208" width="10" height="40"/>
+      </g>
+      <path class="trail" d=""/>
+      <rect class="dock" x="20" y="46" width="9" height="32" rx="3"/>
+      <g class="bot" data-dock="42 62" transform="translate(42 62)">
+        <circle class="bot-body" r="12"/>
+        <path class="bot-bumper" d="M-9.5 -6.5a11.5 11.5 0 0 1 19 0"/>
+        <circle class="bot-eye" cy="-4" r="3.4"/>
+      </g>
+    </svg>
+      <div class="tile">
+        <div class="tile-head">
+          <span class="tile-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12.5" r="8"/><path d="M5.2 6.6a9.6 9.6 0 0 1 13.6 0"/><circle cx="12" cy="9.2" r="2.2"/></svg></span>
+          <div class="tile-name"><strong>掃地機器人</strong><span data-status aria-live="polite"></span></div>
+          <span class="tile-battery" data-battery></span>
+        </div>
+        <fieldset class="picks">
+          <legend>要打掃的房間<span data-summary></span></legend>
+          <div class="chips">
+            <button type="button" class="chip-btn" data-pick="living" aria-pressed="false">客廳</button>
+            <button type="button" class="chip-btn" data-pick="kitchen" aria-pressed="false">廚房</button>
+            <button type="button" class="chip-btn" data-pick="bedroom" aria-pressed="false">臥室</button>
+            <button type="button" class="chip-btn" data-pick="study" aria-pressed="false">書房</button>
+          </div>
+        </fieldset>
+        <div class="controls">
+          <button type="button" class="go" data-go>開始</button>
+          <button type="button" class="home" data-home>回充</button>
+        </div>
+      </div>
+      <p class="hint">試試看：選擇房間，或不選就打掃全屋。分房清掃需要 Matter 與 iOS 18.4 以上。</p>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="h-local">
+    <div class="intro">
+      <h2 id="h-local">雲端斷線，照樣能用</h2>
+      <p>Roborock 雲端只在登入和讀取裝置清單時需要。控制指令會透過家裡的網路直接送到掃地機器人；如果 Homebridge 啟動時連不上雲端，外掛會用先前儲存的裝置清單啟動。場景等雲端功能會在雲端恢復後自動回來。</p>
+    </div>
+    <ol class="flow">
+        <li class="node"><span class="node-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M9.5 12 12 9.8l2.5 2.2M10.3 11.3v3.2h3.4v-3.2"/></svg></span><strong>「家庭」App</strong><small>iPhone、iPad、Mac 或 HomePod</small></li><li class="link" aria-hidden="true"><span>HomeKit 或 Matter</span></li>
+        <li class="node"><span class="node-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="6" rx="1.5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/><path d="M7 8h.01M7 16h.01"/></svg></span><strong>Homebridge</strong><small>執行這個外掛</small></li><li class="link" aria-hidden="true"><span>你家的網路</span></li>
+        <li class="node"><span class="node-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12.5" r="8"/><path d="M5.2 6.6a9.6 9.6 0 0 1 13.6 0"/><circle cx="12" cy="9.2" r="2.2"/></svg></span><strong>Roborock 掃地機器人</strong><small>連在你的 Wi-Fi 上</small></li>
+    </ol>
+    <p class="fine note">外掛需要先成功連線啟動過一次，才會儲存裝置清單。從其他 Roborock 帳號分享給你的掃地機器人，只能透過雲端控制。</p>
+  </section>
+
+  <section class="band" aria-labelledby="h-feat">
+    <div class="intro">
+      <h2 id="h-feat">在「家庭」App 裡能做什麼</h2>
+      <p>每台掃地機器人都會帶著它實際具備的控制項和資訊出現。</p>
+    </div>
+    <ul class="feats"><li><h3>開始、停止、送回充電座</h3><p>透過 HomeKit 時，掃地機器人會以風扇樣式的方塊出現：打開就開始打掃，關閉就停止並返回充電座。Siri、場景和自動化也都能用。</p></li><li><h3>電量、充電與錯誤</h3><p>電量、充電狀態和低電量警告。掃地機器人回報錯誤或離線時會被標示出來。</p></li><li><h3>你的 Roborock 場景</h3><p>在 Roborock App 建立的場景會變成開關，點一下或用自動化就能跑完整套流程。</p></li><li><h3>基座洗拖布</h3><p>基座能清洗拖布的機型會多一個開關：可以開始或停止清洗，而且不論從哪裡啟動，只要基座正在清洗就會顯示為開啟。</p></li><li><h3>濾網與刷子</h3><p>透過 HomeKit 時，顯示濾網、主刷和邊刷的剩餘壽命，快用完時會提醒你。</p></li><li><h3>目前房間送到 MQTT</h3><p>可選擇把正在打掃的房間發佈到你的 MQTT broker，讓燈光或其他自動化跟著掃地機器人走。</p></li></ul>
+  </section>
+
+  <section class="band" aria-labelledby="h-matter">
+    <div class="split">
+      <div class="intro">
+        <h2 id="h-matter">Matter：真正的掃地機器人控制 <span class="chip">Beta</span></h2>
+        <p>為掃地機器人選擇 Matter，Apple「家庭」就會把它顯示成掃地機器人而不是風扇：可以選擇要打掃的房間、切換吸塵、拖地或兩者並行，還能送它回充電座。Google Home、Alexa 和 SmartThings 也能使用。</p>
+        <p>Apple「家庭」對 Matter 掃地機器人的支援還很新。配對時會出現「未經認證的配件」警告，iOS 更新後偶爾也會有些小狀況。想要最穩定的體驗，請繼續使用 HomeKit。</p>
+      </div>
+      <div class="panel">
+        <h3>每台分別選擇</h3>
+        <p class="panel-p">在外掛設定中載入裝置，再為每台掃地機器人三選一。</p>
+        <ul class="choices"><li><h3>HomeKit (HAP)</h3><p>預設選項。穩定、熟悉的風扇樣式方塊。</p></li><li><h3>Matter (Beta)</h3><p>原生的掃地機器人控制和分房清掃。需要開啟 Matter 的 Homebridge 2；分房清掃需要 iOS 18.4 以上。</p></li><li><h3>略過</h3><p>不把這台放進 Apple「家庭」，例如別人家分享給你的掃地機器人。</p></li></ul>
+        <p class="back">把掃地機器人改成另一種協定時，配件會重新建立，之後需要重新設定它的房間和自動化。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="h-dev">
+    <div class="intro">
+      <h2 id="h-dev">支援 Roborock App 裡的掃地機器人</h2>
+      <p>用你在 Roborock App 使用的帳號登入，外掛會自動找到你的掃地機器人。以下機型已確認可用，Roborock App 裡的其他機型大多也能使用。</p>
+    </div>
+    <ul class="models"><li>S4</li><li>S4 Max</li><li>S5 Max</li><li>S6</li><li>S6 Pure</li><li>S6 MaxV</li><li>S7</li><li>S7 MaxV (Ultra)</li><li>S7 Pro Ultra</li><li>S7 Max Ultra</li><li>S8</li><li>S8 Pro Ultra</li><li>Q5+</li><li>Q5 Pro</li><li>Q7</li><li>Q7 Max</li><li>Q8 Max</li><li>Qrevo</li><li>Qrevo Pro</li><li>Qrevo S</li><li>Qrevo Curv</li><li>Saros 10</li></ul>
+    <div class="aside">
+      <h3>只在米家 App 裡？</h3>
+      <p>外掛看得到的是你 Roborock 帳號裡的掃地機器人。只在米家（Xiaomi Home）App 設定的掃地機器人不在這個帳號裡，所以不會出現。</p>
+    </div>
+  </section>
+
+  <section class="band" id="start" aria-labelledby="h-start">
+    <h2 id="h-start">幾分鐘就能設定好</h2>
+    <ol class="steps"><li><h3>安裝外掛</h3><p>在 Homebridge UI 打開「外掛」，搜尋 Roborock Vacuum，安裝 homebridge-roborock-vacuum。</p></li><li><h3>登入</h3><p>在外掛設定輸入 Roborock App 的 email，用密碼或 email 收到的驗證碼登入。區域會自動偵測。</p></li><li><h3>選擇並重新啟動</h3><p>按下 Load devices，為每台掃地機器人選擇 HomeKit、Matter 或略過，然後重新啟動 Homebridge。</p></li></ol>
+    <p class="fine">需要 Homebridge 1.6 以上，以及 Node.js 18.20、20.15、22 或 24。Matter 需要開啟 Matter 的 Homebridge 2。 <a href="https://github.com/tasict/homebridge-roborock-vacuum#readme">完整說明文件（英文）</a></p>
+  </section>
+
+  <section class="band" aria-labelledby="h-support">
+    <div class="tipjar">
+      <img src="../assets/boba.png" alt="" width="120" height="120">
+      <div>
+        <h2 id="h-support">讓它維持免費</h2>
+        <p>這個外掛沒有廣告，也沒有付費版。如果它幫你省下一些家事，一杯珍奶或一點贊助，能幫我持續跟上 Roborock 的新機型和新韌體。</p>
+        <div class="actions">
+          <a class="btn" href="https://tasict.bobaboba.me"><img src="../assets/boba.png" alt="" width="22" height="22">請我喝珍奶</a>
+          <a class="tip" href="https://paypal.me/tasict">用 PayPal 贊助</a>
+        </div>
+        <p class="fine">珍奶贊助直接刷卡，不需要 PayPal 帳號。</p>
+      </div>
+    </div>
+  </section>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <p>由 tasict 製作，以 copystring 的 ioBroker.roborock 為基礎，採用 MIT 授權釋出。</p>
+        <ul>
+          <li><a href="https://github.com/tasict/homebridge-roborock-vacuum">原始碼</a></li>
+          <li><a href="https://www.npmjs.com/package/homebridge-roborock-vacuum">npm 套件</a></li>
+          <li><a href="https://github.com/tasict/homebridge-roborock-vacuum/blob/master/CHANGELOG.md">更新紀錄</a></li>
+          <li><a href="https://github.com/tasict/homebridge-roborock-vacuum/issues">回報問題</a></li>
+          <li><a href="https://github.com/copystring/ioBroker.roborock">ioBroker.roborock</a></li>
+        </ul>
+      </div>
+      <ul class="langs"><li><a href="../" hreflang="en" lang="en">English</a></li><li><a href="../zh-TW/" hreflang="zh-TW" lang="zh-Hant-TW" aria-current="page">繁體中文</a></li><li><a href="../ja/" hreflang="ja" lang="ja">日本語</a></li></ul>
+    </div>
+    <p class="tm">Roborock（石頭科技）是 Beijing Roborock Technology Co., Ltd. 的商標；Apple Home（家庭）與 HomeKit 是 Apple Inc. 的商標；Matter 是 Connectivity Standards Alliance 的商標。本外掛為非官方專案，與上述公司無關，也未獲其背書。</p>
+  </div>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

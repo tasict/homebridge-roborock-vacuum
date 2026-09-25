@@ -17,13 +17,13 @@
         "title": "Email",
         "type": "string",
         "format": "email",
-        "description": "Roborock account email"
+        "description": "Email of your Roborock app account"
       },
       "password": {
         "title": "Password",
         "type": "string",
         "placeholder": "Password",
-        "description": "Roborock account password"
+        "description": "Roborock account password (not needed when signing in with an email code)"
       },
       "encryptedToken": {
         "title": "Encrypted Token",
@@ -34,7 +34,7 @@
       "skipDevices": {
         "title": "Skipped Device IDs",
         "type": "string",
-        "description": "Roborock device IDs to exclude from HomeKit."
+        "description": "Roborock device IDs to leave out of Apple Home (neither HomeKit nor Matter)."
       },
       "matterDevices": {
         "title": "Matter Device IDs",

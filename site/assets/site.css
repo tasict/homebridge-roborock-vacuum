@@ -1,0 +1,952 @@
+/* Roborock Vacuum for Homebridge: project site. Warm paper with the red of the plugin icon (branding/icon.png),
+   used sparingly: the vacuum, what it has cleaned, and the controls that act. */
+:root {
+  color-scheme: light dark;
+  --paper: #faf6f4;
+  --sheet: #ffffff;
+  --ink: #231815;
+  --muted: #72605b;
+  --rule: #eaded9;
+  --wash: #f3ebe8;
+  --brand: #e5413a;
+  --act: #c42f28;
+  --link: #bd2d26;
+  --on-color: #ffffff;
+  --stage: #f1e9e6;
+  --walls: #d8cbc6;
+  --floor: #fffdfc;
+  --clean: #fde6e2;
+  --trail: rgba(229, 65, 58, 0.16);
+  --shadow: 0 22px 50px -20px rgba(58, 24, 18, 0.3),
+    0 2px 6px rgba(58, 24, 18, 0.06);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    "PingFang TC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans TC",
+    "Noto Sans JP", "Microsoft JhengHei UI", "Yu Gothic UI", "Meiryo",
+    sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
+    "PingFang TC", "Hiragino Sans", "Noto Sans TC", "Noto Sans JP", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1a1413;
+    --sheet: #251d1b;
+    --ink: #f4ebe8;
+    --muted: #b6a39d;
+    --rule: #3b2f2c;
+    --wash: #302623;
+    --brand: #ff6a5f;
+    --act: #ff6a5f;
+    --link: #ff8f86;
+    --on-color: #1a1413;
+    --stage: #221a18;
+    --walls: #4a3b37;
+    --floor: #2c2321;
+    --clean: #4a2723;
+    --trail: rgba(255, 106, 95, 0.2);
+    --shadow: 0 22px 50px -20px rgba(0, 0, 0, 0.65),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.65 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+img {
+  max-width: 100%;
+  height: auto;
+}
+a {
+  color: var(--link);
+  text-underline-offset: 3px;
+}
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+[hidden] {
+  display: none !important;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+h2 {
+  font-size: clamp(28px, 3.6vw, 40px);
+  font-weight: 720;
+  text-wrap: balance;
+}
+h3 {
+  font-size: 18px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+p {
+  margin: 0;
+}
+:lang(zh-Hant-TW) h1,
+:lang(zh-Hant-TW) h2,
+:lang(ja) h1,
+:lang(ja) h2 {
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+/* Japanese has no spaces: break at phrase boundaries, not in the middle of a word (Chrome 119+; others ignore it) */
+:lang(ja) :is(h1, h2, h3, p, dt, dd, small, span, button) {
+  word-break: auto-phrase;
+}
+
+.wrap {
+  width: min(1120px, 100% - 32px);
+  margin-inline: auto;
+}
+
+/* ---------- Header ---------- */
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 12px 16px;
+  padding-block: 18px;
+}
+.wordmark {
+  display: flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+  color: inherit;
+  text-decoration: none;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 17px;
+}
+.wordmark img {
+  width: 30px;
+  height: 30px;
+}
+.masthead > a:not(.wordmark, .tip) {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 15px;
+}
+.masthead > a:not(.wordmark, .tip):hover {
+  color: var(--ink);
+}
+
+.lang {
+  position: relative;
+  font-size: 15px;
+}
+.lang summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--sheet);
+  color: var(--ink);
+}
+.lang summary::-webkit-details-marker {
+  display: none;
+}
+.lang summary svg {
+  flex: none;
+}
+.lang ul {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  min-width: 150px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.lang li a {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.lang li a:hover {
+  background: var(--wash);
+}
+.lang li a[aria-current] {
+  font-weight: 700;
+}
+
+/* ---------- Hero: copy on the left, a floor plan on the right that the vacuum cleans ---------- */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+  gap: 56px;
+  align-items: center;
+  padding-top: 40px;
+}
+.hero-copy h1 {
+  font-size: clamp(42px, 6vw, 70px);
+  font-weight: 760;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+  text-wrap: balance;
+}
+:lang(zh-Hant-TW) .hero-copy h1,
+:lang(ja) .hero-copy h1 {
+  font-size: clamp(32px, 4.6vw, 52px);
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+.hero-copy .lede {
+  margin-top: 22px;
+  font-size: 20px;
+  color: var(--muted);
+  max-width: 30em;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 22px;
+  margin-top: 32px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 22px;
+  border-radius: 12px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 650;
+  text-decoration: none;
+}
+.btn:hover {
+  opacity: 0.9;
+}
+.btn img {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+}
+.fine {
+  margin-top: 18px;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+
+.stage {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 26px 26px 22px;
+  border-radius: 28px;
+  background: var(--stage);
+}
+
+/* The floor plan. The walls are the gaps between the rooms; doors bridge them. */
+.plan {
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+  overflow: visible;
+}
+.walls {
+  fill: var(--walls);
+}
+.area rect {
+  fill: var(--floor);
+  stroke: transparent;
+  stroke-width: 2.5;
+  transition:
+    fill 0.8s ease,
+    stroke 0.2s;
+}
+.area text {
+  fill: var(--muted);
+  font: 500 13px var(--font);
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  transition: fill 0.3s;
+}
+.area.sel rect {
+  stroke: var(--brand);
+}
+.area.sel text,
+.area.doing text {
+  fill: var(--ink);
+  font-weight: 650;
+}
+.area.done rect {
+  fill: var(--clean);
+}
+.stage[data-state="docked"] .area {
+  cursor: pointer;
+}
+.door {
+  fill: var(--floor);
+}
+.trail {
+  fill: none;
+  stroke: var(--trail);
+  stroke-width: 22;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Back on the dock, the path fades and the cleaned rooms stay tinted */
+.stage[data-state="docked"] .trail {
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+.dock {
+  fill: var(--ink);
+  opacity: 0.75;
+}
+.bot-body {
+  fill: var(--sheet);
+  stroke: var(--walls);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 2px 3px rgba(58, 24, 18, 0.25));
+}
+.bot-bumper {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+.bot-eye {
+  fill: var(--brand);
+}
+
+/* The Home app's vacuum tile, reduced to what the demo needs */
+.tile {
+  width: 100%;
+  max-width: 380px;
+  margin-top: 14px;
+  padding: 18px 18px 16px;
+  border-radius: 22px;
+  background: var(--sheet);
+  box-shadow: var(--shadow);
+}
+.tile-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tile-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--wash);
+  color: var(--muted);
+  transition:
+    background 0.4s,
+    color 0.4s;
+}
+.tile-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.stage:is([data-state="cleaning"], [data-state="returning"]) .tile-icon {
+  background: var(--brand);
+  color: var(--on-color);
+}
+.tile-name {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+.tile-name strong {
+  display: block;
+  font-weight: 650;
+}
+.tile-name span {
+  display: block;
+  font-size: 14px;
+  color: var(--muted);
+}
+.tile-battery {
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.picks {
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.picks legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.picks legend span {
+  font-variant-numeric: tabular-nums;
+}
+.chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.chip-btn {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 500 14px/1.2 var(--font);
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s;
+}
+.chip-btn:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+.chip-btn[aria-pressed="true"] {
+  border-color: var(--brand);
+  background: var(--clean);
+  font-weight: 650;
+}
+.chip-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.controls button {
+  min-height: 44px;
+  border-radius: 12px;
+  font: 650 15px/1 var(--font);
+  cursor: pointer;
+}
+.go {
+  border: 0;
+  background: var(--act);
+  color: var(--on-color);
+}
+.go:hover {
+  opacity: 0.92;
+}
+.home {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+}
+.home:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+.home:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.hint {
+  max-width: 380px;
+  margin-top: 14px;
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ---------- Sections ---------- */
+section.band {
+  padding-top: 112px;
+}
+.intro {
+  max-width: 40em;
+}
+.intro p {
+  margin-top: 16px;
+  font-size: 19px;
+  color: var(--muted);
+}
+.intro p + p {
+  margin-top: 12px;
+}
+
+/* Local control: Home app, Homebridge and the vacuum, joined by what carries the traffic */
+.flow {
+  display: flex;
+  align-items: flex-start;
+  margin: 48px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.node {
+  flex: 0 0 180px;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.node-icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  margin-bottom: 10px;
+  border-radius: 18px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  color: var(--brand);
+}
+.node-icon svg {
+  width: 28px;
+  height: 28px;
+}
+.node strong {
+  font-weight: 650;
+}
+.node small {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.link {
+  flex: 1;
+  position: relative;
+  min-width: 80px;
+  height: 60px;
+}
+.link::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 30px;
+  border-top: 2px dashed var(--brand);
+  opacity: 0.55;
+}
+.link span {
+  position: absolute;
+  left: 50%;
+  top: 30px;
+  transform: translate(-50%, -50%);
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  font-size: 13.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.note {
+  max-width: 46em;
+  margin-top: 36px;
+}
+
+/* What you get: plain pairs under a rule, no boxes */
+.feats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 36px 40px;
+  margin: 44px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.feats li {
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.feats p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+/* Matter: the reason on the left, the per-vacuum choice on the right */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 56px;
+  align-items: start;
+}
+.chip {
+  display: inline-block;
+  vertical-align: 0.35em;
+  margin-left: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--brand);
+  border-radius: 999px;
+  color: var(--link);
+  font: 600 13px/1.4 var(--font);
+  letter-spacing: 0;
+}
+.panel {
+  padding: 32px 34px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+}
+.panel-p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 16px;
+}
+.choices {
+  display: grid;
+  gap: 16px;
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.choices li {
+  position: relative;
+  padding-left: 30px;
+}
+.choices li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 5px;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--walls);
+  border-radius: 50%;
+}
+.choices li:first-child::before {
+  border: 5px solid var(--brand);
+}
+.choices h3 {
+  font-size: 16.5px;
+}
+.choices p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 15.5px;
+}
+.back {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 15.5px;
+}
+
+/* Models */
+.models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 40px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.models li {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  font-size: 15px;
+  white-space: nowrap;
+}
+.aside {
+  margin-top: 28px;
+  padding: 22px 28px;
+  border: 1.5px dashed var(--rule);
+  border-radius: 18px;
+}
+.aside h3 {
+  font-size: 16.5px;
+}
+.aside p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 15.5px;
+  max-width: 60em;
+}
+
+/* Getting started */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
+  margin: 40px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.steps li {
+  counter-increment: step;
+}
+.steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  font: 700 18px/1 var(--display);
+}
+.steps p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+.steps + .fine {
+  margin-top: 32px;
+}
+
+/* ---------- Support ---------- */
+.tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--sheet);
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+.tip:hover {
+  border-color: var(--muted);
+}
+.tip img {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: -4px;
+  border-radius: 6px;
+}
+.head-tip {
+  min-height: 34px;
+  padding: 4px 12px;
+  font-size: 15px;
+}
+.tipjar {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 36px;
+  align-items: center;
+  padding: 40px 44px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+}
+.tipjar > img {
+  width: 120px;
+  height: 120px;
+  border-radius: 30px;
+}
+.tipjar p {
+  max-width: 38em;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 18px;
+}
+.tipjar .actions {
+  margin-top: 24px;
+}
+.tipjar .fine {
+  margin-top: 12px;
+  font-size: 14.5px;
+}
+
+/* ---------- Footer ---------- */
+footer {
+  margin-top: 120px;
+  padding-block: 40px 56px;
+  border-top: 1px solid var(--rule);
+  font-size: 15px;
+  color: var(--muted);
+}
+.foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 32px;
+}
+.foot ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.foot .langs {
+  justify-content: flex-end;
+}
+.foot .langs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.foot .langs a:hover,
+.foot .langs a[aria-current] {
+  color: var(--ink);
+}
+.tm {
+  margin-top: 28px;
+  font-size: 13.5px;
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding-top: 16px;
+  }
+  .stage {
+    padding: 20px 14px 18px;
+  }
+  .split,
+  .foot {
+    grid-template-columns: 1fr;
+  }
+  .feats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .steps {
+    grid-template-columns: 1fr;
+  }
+  .tipjar {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 28px 24px;
+  }
+  .tipjar > img {
+    width: 88px;
+    height: 88px;
+    border-radius: 22px;
+  }
+  .foot .langs {
+    justify-content: flex-start;
+  }
+  section.band {
+    padding-top: 84px;
+  }
+  .flow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .node {
+    flex: none;
+    grid-template-columns: 60px auto;
+    grid-template-rows: auto auto;
+    justify-items: start;
+    column-gap: 16px;
+    text-align: left;
+  }
+  .node-icon {
+    grid-row: span 2;
+    margin: 0;
+  }
+  .node strong {
+    align-self: end;
+  }
+  .node small {
+    align-self: start;
+  }
+  .link {
+    flex: none;
+    width: 60px;
+    height: 64px;
+    min-width: 0;
+  }
+  .link::before {
+    left: 29px;
+    right: auto;
+    top: 4px;
+    bottom: 4px;
+    border-top: 0;
+    border-left: 2px dashed var(--brand);
+  }
+  .link span {
+    left: 76px;
+    top: 32px;
+    transform: translateY(-50%);
+  }
+}
+@media (max-width: 640px) {
+  body {
+    font-size: 16px;
+  }
+  .feats {
+    grid-template-columns: 1fr;
+  }
+  .panel {
+    padding: 24px 22px;
+  }
+  .masthead > a:not(.wordmark, .head-tip) {
+    display: none;
+  }
+  .wordmark {
+    font-size: 15px;
+  }
+  .head-tip span {
+    display: none;
+  }
+  .head-tip {
+    padding: 4px 8px;
+  }
+  .head-tip img {
+    margin: 0;
+  }
+  .area text {
+    font-size: 17px;
+  }
+}
+@media (max-width: 400px) {
+  .lang summary span {
+    display: none;
+  }
+  .lang summary {
+    padding: 6px 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

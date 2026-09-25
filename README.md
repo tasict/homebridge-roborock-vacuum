@@ -1,81 +1,87 @@
-# homebridge-roborock-vacuum
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tasict/homebridge-roborock-vacuum/master/branding/icon.png" width="96" height="96" alt="">
+</p>
 
-![Roborock Vacuum in Home App](https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/40/21/71/40217177-c879-f670-bd01-c93acfabc31e/AppIcon-0-0-1x_U007emarketing-0-8-0-85-220.png/460x0w.webp)
+# Homebridge Roborock Vacuum
 
-A Homebridge plugin to integrate your Roborock vacuum cleaner with Apple HomeKit, allowing you to control it via the Home app and Siri.
+**Website: [tasict.github.io/homebridge-roborock-vacuum](https://tasict.github.io/homebridge-roborock-vacuum/)** (English, 繁體中文, 日本語)
 
-## Introduction
+[![npm version](https://img.shields.io/npm/v/homebridge-roborock-vacuum?color=%23cb3837&label=npm)](https://www.npmjs.com/package/homebridge-roborock-vacuum)
+[![npm downloads](https://img.shields.io/npm/dm/homebridge-roborock-vacuum)](https://www.npmjs.com/package/homebridge-roborock-vacuum)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-`homebridge-roborock-vacuum` brings your Roborock vacuum cleaner into Apple HomeKit. Using your Roborock app account credentials, this plugin automatically detects your vacuum, enabling you to control it directly from the Home app on your iPhone, iPad, or Mac, or with Siri voice commands.
+`homebridge-roborock-vacuum` is a [Homebridge](https://homebridge.io) plugin that brings Roborock robot vacuums into Apple Home, over HomeKit or Matter. Sign in with your Roborock app account and the plugin finds your vacuums by itself; you can then start and stop them from the Home app, with Siri or from automations. Commands go to the vacuum over your home network, so it stays controllable when the Roborock cloud is down.
+
+Free and open source. If it saves you a few chores, you can [buy me a boba](https://tasict.bobaboba.me) (by card, no PayPal account needed) or [tip with PayPal](https://paypal.me/tasict).
 
 This plugin is inspired by and adapted from the [ioBroker.roborock](https://github.com/copystring/ioBroker.roborock) project by copystring.
 
 ## Features
 
-- **Automatic Device Detection**: No need to manually find or enter your vacuum's device ID.
-- **Start/Stop Cleaning**: Begin or end cleaning sessions.
-- **Device Exclusion**: Skip selected Roborock device IDs so shared or remote vacuums stay out of HomeKit.
+- **Automatic device discovery** — no device IDs or IP addresses to look up. The Roborock region is detected from your account.
+- **Start, stop and send home** — over HomeKit the vacuum is a fan-style accessory: turn it on to start cleaning, off to stop and return to the dock.
+- **Battery, charging and status** — battery level, charging state, low-battery warning, and a fault/offline flag when the vacuum reports an error or loses its connection.
+- **Roborock scenes as switches** — every enabled scene from the Roborock app that uses the vacuum can be run from Apple Home.
+- **Dock mop-wash switch** on docks that wash the mop. See [Dock mop-wash switch](#dock-mop-wash-switch).
+- **Consumables** (HomeKit) — remaining life of the filter, main brush and side brush, with a change reminder at 5% or less.
+- **Matter (Beta)** — publish a vacuum as a native Matter robot vacuum, with room cleaning and clean modes. See [Matter support (Beta)](#matter-support-beta).
+- **Works through cloud outages** — local control over the LAN, and a local-only start when the Roborock cloud is unreachable. See [Cloud outages and local-only mode](#cloud-outages-and-local-only-mode).
+- **Current room → MQTT** (optional) — publish the room being cleaned to your MQTT broker. See [Current Room → MQTT](#current-room--mqtt-optional-telemetry).
+- **Per-device choice** — publish each vacuum over HomeKit or Matter, or skip it (for example a vacuum shared from another home).
 
-## The supported robots are:
+## Supported vacuums
 
-Roborock S4
-Roborock S4 Max
-Roborock S5 Max
-Roborock S6
-Roborock S6 Pure
-Roborock S6 MaxV
-Roborock S7
-Roborock S7 MaxV (Ultra)
-Roborock Q5+
-Roborock Q7
-Roborock Q7 Max
-Roborock S7 Pro Ultra
-Roborock S7 Max Ultra
-Roborock S8
-Roborock S8 Pro Ultra
-Roborock Q Revo
-Roborock Q8 Max
-Roborock Q5 Pro
-Roborock Q Revo Pro
-Roborock Qrevo S
-Roborock Qrevo Curve
-Roborock Saros 10
-Roborock (roborock.vacuum.a95)
-Roborock (roborock.vacuum.a159)
-Roborock (roborock.vacuum.ss07)
+The plugin works with vacuums that are on your **Roborock app** account. These models are known to work:
+
+S4, S4 Max, S5 Max, S6, S6 Pure, S6 MaxV, S7, S7 MaxV (Ultra), S7 Pro Ultra, S7 Max Ultra, S8, S8 Pro Ultra, Q5+, Q5 Pro, Q7, Q7 Max, Q8 Max, Qrevo, Qrevo Pro, Qrevo S, Qrevo Curv, Saros 10, and the models `roborock.vacuum.a95`, `roborock.vacuum.a159` and `roborock.vacuum.ss07`.
+
+Most other vacuums in the Roborock app work as well; which extras (dock mop wash, consumables, clean modes) appear depends on what the model reports. A vacuum that is set up only in the Xiaomi Home app is not on your Roborock account, so the plugin cannot see it.
 
 ## Requirements
 
-Before installing, ensure you have:
-
-- A Roborock vacuum cleaner compatible with the Roborock app.
-- A Roborock app account (email and password).
-- [Homebridge](https://github.com/homebridge/homebridge) installed on a server (e.g., Raspberry Pi).
-- Node.js and npm installed on your Homebridge server.
+- A Roborock vacuum added to the Roborock app, and the email address of that Roborock account.
+- [Homebridge](https://homebridge.io) 1.6 or later, on Node.js 18.20, 20.15, 22 or 24.
+- For Matter: Homebridge 2.x with Matter enabled on the bridge the plugin runs on.
 
 ## Installation
 
-Follow these steps to install the plugin:
+In the Homebridge UI, open **Plugins**, search for **Roborock Vacuum** and install `homebridge-roborock-vacuum`.
 
-1. **Install Homebridge** (if not already installed):
+Without the UI, install it next to Homebridge:
 
-   - Refer to the official [Homebridge installation guide](https://github.com/homebridge/homebridge#installation).
-
-2. **Install the Plugin**:
-   - Open a terminal and run:
-     ```bash
-     npm install -g homebridge-roborock-vacuum
-     ```
+```bash
+npm install -g homebridge-roborock-vacuum
+```
 
 ## Configuration
 
-Use the Homebridge UI settings page to sign in and configure the plugin. Click **Load devices** to list the vacuums on your account, then choose a protocol for each one:
+Configure the plugin from its settings page in the Homebridge UI:
 
-- **HomeKit (HAP)** — the default. The vacuum is bridged to Apple Home as a fan-style accessory, as in previous versions.
-- **Matter (Beta)** — the vacuum is published over Matter as a robotic vacuum cleaner, so it gets the native vacuum icon and controls in Apple Home (and works with Google Home, Alexa and SmartThings). This is an experimental feature — read the [Matter support (Beta)](#matter-support-beta) section below before enabling it.
-- **Skip** — the vacuum is excluded entirely. You can also enter device IDs manually in the list below; manual entries are always skipped.
+1. **Sign in.** Enter your Roborock app email. Either enter your password and press **Password Login**, or press **Send 2FA Email** and enter the code from the email with **Verify Code** (also the way to finish a login that asks for two-factor authentication). Leave **Region** on _Auto detect_ unless detection picks the wrong server. The settings page stores an encrypted session token; you do not need to sign in again after a restart.
+2. **Choose a protocol per vacuum.** Press **Load devices** to list the vacuums on your account and pick one for each:
+   - **HomeKit (HAP)** — the default. The vacuum is bridged to Apple Home as a fan-style accessory, as in previous versions.
+   - **Matter (Beta)** — the vacuum is published over Matter as a robotic vacuum cleaner, so it gets the native vacuum icon and controls in Apple Home (and works with Google Home, Alexa and SmartThings). This is an experimental feature — read the [Matter support (Beta)](#matter-support-beta) section below before enabling it.
+   - **Skip** — the vacuum is excluded entirely. You can also enter device IDs manually in the list below; manual entries are always skipped.
+3. **Restart Homebridge.**
 
 When Homebridge restarts, each device is (re)published according to its selection. A device that was cached under a different protocol (or is now skipped) is removed from the old bridge first. **Changing a device's protocol re-creates the accessory**, so it loses its room and automation assignments in your home app and must be re-organized there.
+
+### Options
+
+The settings page writes these keys to the `RoborockVacuumPlatform` block in `config.json`:
+
+| Key                  | Description                                                                                                                                                                                                |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `email`              | Roborock app account email. Required.                                                                                                                                                                      |
+| `password`           | Roborock account password, saved by **Password Login**. Not needed when you sign in with an email code.                                                                                                    |
+| `encryptedToken`     | Encrypted session data, managed by the settings page.                                                                                                                                                      |
+| `baseURL`            | Roborock API endpoint. Leave empty to auto-detect; otherwise `https://usiot.roborock.com` (US), `https://euiot.roborock.com` (EU), `https://cniot.roborock.com` (CN) or `https://api.roborock.com` (Asia). |
+| `language`           | Language of the names the plugin gives to switches and sensors it adds (`en`, `de`, `es`, `fr`, `it`, `nl`, `pl`, `pt`, `ru`, `uk`, `zh-cn`, `zh-tw`). Default `en`.                                       |
+| `skipDevices`        | Device IDs to leave out, as a list or a comma- or newline-separated string.                                                                                                                                |
+| `matterDevices`      | Device IDs to publish over Matter instead of HomeKit. Ignored without Homebridge 2 and Matter.                                                                                                             |
+| `matterSceneDevices` | Matter device IDs whose Roborock scenes become Matter buttons. When omitted, every Matter device gets them.                                                                                                |
+| `currentRoomMqtt`    | Optional current-room telemetry, see [Current Room → MQTT](#current-room--mqtt-optional-telemetry).                                                                                                        |
+| `debugMode`          | Write debug messages to the Homebridge log. Default `false`.                                                                                                                                               |
 
 ### Matter support (Beta)
 
@@ -191,3 +197,14 @@ A retained JSON message is published whenever the room changes:
 - Room names are resolved from the robot's saved map; name your rooms in the Roborock app for them to appear.
 
 > Validated on a Roborock Qrevo (`roborock.vacuum.a185`). On models that don't populate `cleaning_info`, the payload degrades gracefully to `segment_id: -1` / `room: null`.
+
+## Support
+
+If this plugin is useful to you, I'd love it if you bought me a boba:
+
+- **[Buy me a boba](https://tasict.bobaboba.me)**: pay by card, no PayPal account needed
+- **[Tip with PayPal](https://paypal.me/tasict)**
+
+## Trademarks
+
+Roborock is a trademark of Beijing Roborock Technology Co., Ltd. Apple Home and HomeKit are trademarks of Apple Inc. Matter is a trademark of the Connectivity Standards Alliance. This plugin is unofficial and is not affiliated with, endorsed by, or sponsored by any of them.

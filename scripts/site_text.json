@@ -1,0 +1,428 @@
+{
+  "en": {
+    "title": "Roborock Vacuum for Homebridge: Roborock vacuums in Apple Home",
+    "desc": "A free Homebridge plugin that brings Roborock robot vacuums into Apple Home over HomeKit or Matter, and keeps them working on your home network when the Roborock cloud is down.",
+    "lang_menu": "Language",
+    "source": "Source code",
+    "h1": "Your Roborock,\nin Apple Home.",
+    "lede": "A Homebridge plugin that puts your Roborock robot vacuums in the Home app, over HomeKit or Matter. Start a clean with Siri or an automation, and keep control on your home network even when the Roborock cloud is down.",
+    "cta": "Get started",
+    "github": "View on GitHub",
+    "fine": "Free and open source. Works with Homebridge 1.6 or later; Matter needs Homebridge 2.",
+    "vac": "Robot Vacuum",
+    "rooms": {
+      "living": "Living Room",
+      "kitchen": "Kitchen",
+      "bedroom": "Bedroom",
+      "study": "Study"
+    },
+    "st_docked": "Docked",
+    "st_charging": "Charging",
+    "st_cleaning": "Cleaning the {room}",
+    "st_returning": "Returning to dock",
+    "st_paused": "Paused",
+    "start": "Start",
+    "pause": "Pause",
+    "dock": "Dock",
+    "rooms_legend": "Rooms to clean",
+    "rooms_all": "Whole home",
+    "rooms_some": "{n} of 4 rooms",
+    "battery": "Battery {b}",
+    "demo_hint": "Try it. Pick rooms, or none for the whole home. Room cleaning needs Matter and iOS 18.4 or later.",
+    "map_alt": "A floor plan with four rooms. The vacuum leaves its dock, cleans the chosen rooms and returns.",
+    "local_h2": "Keeps working when the cloud doesn't",
+    "local_p": "The Roborock cloud is only needed to sign in and to read your device list. Commands go straight to the vacuum over your home network, and if the cloud is unreachable when Homebridge starts, the plugin starts from its saved device list. Cloud features such as scenes come back by themselves once the cloud answers.",
+    "flow": [
+      ["Home app", "iPhone, iPad, Mac or HomePod"],
+      ["Homebridge", "Runs the plugin"],
+      ["Roborock vacuum", "On your Wi-Fi"]
+    ],
+    "flow_links": ["HomeKit or Matter", "Your home network"],
+    "local_note": "The plugin needs one successful online start to save the device list. A vacuum shared with you from another Roborock account can only be controlled through the cloud.",
+    "feat_h2": "What you get in the Home app",
+    "feat_p": "Each vacuum shows up with the controls and readings it actually has.",
+    "feats": [
+      [
+        "Start, stop and send home",
+        "Over HomeKit the vacuum is a fan-style tile: turn it on to start cleaning, off to stop and return to the dock. Siri, scenes and automations work too."
+      ],
+      [
+        "Battery, charging and errors",
+        "Battery level, charging state and a low-battery warning. A vacuum that reports an error or goes offline is flagged."
+      ],
+      [
+        "Your Roborock scenes",
+        "Scenes you made in the Roborock app become switches, so a full routine runs with one tap or from an automation."
+      ],
+      [
+        "Dock mop wash",
+        "On docks that wash the mop, a switch starts or stops a wash and turns on whenever the dock is washing, however it started."
+      ],
+      [
+        "Filter and brushes",
+        "Over HomeKit, the remaining life of the filter, main brush and side brush, with a reminder when one is nearly worn out."
+      ],
+      [
+        "Current room to MQTT",
+        "Optionally publishes the room being cleaned to your MQTT broker, so lights or other automations can follow the vacuum."
+      ]
+    ],
+    "matter_h2": "Matter, for real vacuum controls",
+    "beta": "Beta",
+    "matter_p": "Choose Matter for a vacuum and Apple Home shows it as a robot vacuum instead of a fan: pick the rooms to clean, switch between vacuum, mop or both, and send it back to the dock. It works with Google Home, Alexa and SmartThings as well.",
+    "matter_p2": "Apple Home's support for Matter vacuums is still young. Expect an uncertified-accessory warning while pairing and the odd hiccup after iOS updates. For the steadiest setup, stay on HomeKit.",
+    "choose_h3": "Choose per vacuum",
+    "choose_p": "Load your devices in the plugin settings and pick one of three for each vacuum.",
+    "choices": [
+      ["HomeKit (HAP)", "The default. The steady, familiar fan-style tile."],
+      [
+        "Matter (Beta)",
+        "Native vacuum controls and room cleaning. Needs Homebridge 2 with Matter turned on; room cleaning needs iOS 18.4 or later."
+      ],
+      [
+        "Skip",
+        "Keeps a vacuum out of Apple Home, for example one shared from another home."
+      ]
+    ],
+    "switch_note": "Switching a vacuum to another protocol re-creates its accessory, so give it its room and automations again afterwards.",
+    "dev_h2": "Works with the vacuums in your Roborock app",
+    "dev_p": "Sign in with the account you use in the Roborock app and the plugin finds your vacuums by itself. These models are known to work, and most other vacuums in the Roborock app do too.",
+    "models": [
+      "S4",
+      "S4 Max",
+      "S5 Max",
+      "S6",
+      "S6 Pure",
+      "S6 MaxV",
+      "S7",
+      "S7 MaxV (Ultra)",
+      "S7 Pro Ultra",
+      "S7 Max Ultra",
+      "S8",
+      "S8 Pro Ultra",
+      "Q5+",
+      "Q5 Pro",
+      "Q7",
+      "Q7 Max",
+      "Q8 Max",
+      "Qrevo",
+      "Qrevo Pro",
+      "Qrevo S",
+      "Qrevo Curv",
+      "Saros 10"
+    ],
+    "mihome_h3": "Only in Xiaomi Home?",
+    "mihome_p": "The plugin sees the vacuums on your Roborock account. A vacuum that is set up only in the Xiaomi Home app is not on that account, so it won't show up.",
+    "start_h2": "Set it up in a few minutes",
+    "steps": [
+      [
+        "Install the plugin",
+        "In the Homebridge UI, open Plugins, search for Roborock Vacuum and install homebridge-roborock-vacuum."
+      ],
+      [
+        "Sign in",
+        "In the plugin settings, enter your Roborock app email and sign in with your password or with a code sent by email. The region is detected for you."
+      ],
+      [
+        "Choose and restart",
+        "Press Load devices, pick HomeKit, Matter or Skip for each vacuum, then restart Homebridge."
+      ]
+    ],
+    "start_note": "Requires Homebridge 1.6 or later and Node.js 18.20, 20.15, 22 or 24. Matter needs Homebridge 2 with Matter turned on.",
+    "docs": "Full documentation",
+    "support_h2": "Keep it free",
+    "support_p": "The plugin has no ads and no paid version. If it saves you a few chores, a boba or a small tip helps me keep up with new Roborock models and firmware.",
+    "boba": "Buy me a boba",
+    "paypal": "Tip with PayPal",
+    "support_card": "Boba is paid by card. No PayPal account needed.",
+    "made": "Made by tasict, building on ioBroker.roborock by copystring. Released under the MIT license.",
+    "changelog": "Changelog",
+    "npm": "npm package",
+    "issues": "Report a problem",
+    "tm": "Roborock is a trademark of Beijing Roborock Technology Co., Ltd. Apple Home and HomeKit are trademarks of Apple Inc. Matter is a trademark of the Connectivity Standards Alliance. This plugin is unofficial and not affiliated with or endorsed by any of them."
+  },
+  "zh-TW": {
+    "title": "Roborock Vacuum for Homebridge：把 Roborock 掃地機器人接進 Apple「家庭」",
+    "desc": "免費的 Homebridge 外掛，透過 HomeKit 或 Matter 把 Roborock 掃地機器人放進 Apple「家庭」App；Roborock 雲端斷線時，也能在家裡的網路上繼續控制。",
+    "lang_menu": "語言",
+    "source": "原始碼",
+    "h1": "你的 Roborock，\n放進「家庭」App。",
+    "lede": "這是一個 Homebridge 外掛，透過 HomeKit 或 Matter 把 Roborock 掃地機器人放進「家庭」App。用 Siri 或自動化開始打掃；就算 Roborock 雲端斷線，也能在家裡的網路上繼續控制。",
+    "cta": "開始使用",
+    "github": "在 GitHub 查看",
+    "fine": "免費、開放原始碼。支援 Homebridge 1.6 以上；Matter 需要 Homebridge 2。",
+    "vac": "掃地機器人",
+    "rooms": {
+      "living": "客廳",
+      "kitchen": "廚房",
+      "bedroom": "臥室",
+      "study": "書房"
+    },
+    "st_docked": "在充電座上",
+    "st_charging": "充電中",
+    "st_cleaning": "正在打掃{room}",
+    "st_returning": "正在返回充電座",
+    "st_paused": "已暫停",
+    "start": "開始",
+    "pause": "暫停",
+    "dock": "回充",
+    "rooms_legend": "要打掃的房間",
+    "rooms_all": "全屋",
+    "rooms_some": "4 間中的 {n} 間",
+    "battery": "電量 {b}",
+    "demo_hint": "試試看：選擇房間，或不選就打掃全屋。分房清掃需要 Matter 與 iOS 18.4 以上。",
+    "map_alt": "有四個房間的平面圖。掃地機器人離開充電座，打掃選定的房間後返回。",
+    "local_h2": "雲端斷線，照樣能用",
+    "local_p": "Roborock 雲端只在登入和讀取裝置清單時需要。控制指令會透過家裡的網路直接送到掃地機器人；如果 Homebridge 啟動時連不上雲端，外掛會用先前儲存的裝置清單啟動。場景等雲端功能會在雲端恢復後自動回來。",
+    "flow": [
+      ["「家庭」App", "iPhone、iPad、Mac 或 HomePod"],
+      ["Homebridge", "執行這個外掛"],
+      ["Roborock 掃地機器人", "連在你的 Wi-Fi 上"]
+    ],
+    "flow_links": ["HomeKit 或 Matter", "你家的網路"],
+    "local_note": "外掛需要先成功連線啟動過一次，才會儲存裝置清單。從其他 Roborock 帳號分享給你的掃地機器人，只能透過雲端控制。",
+    "feat_h2": "在「家庭」App 裡能做什麼",
+    "feat_p": "每台掃地機器人都會帶著它實際具備的控制項和資訊出現。",
+    "feats": [
+      [
+        "開始、停止、送回充電座",
+        "透過 HomeKit 時，掃地機器人會以風扇樣式的方塊出現：打開就開始打掃，關閉就停止並返回充電座。Siri、場景和自動化也都能用。"
+      ],
+      [
+        "電量、充電與錯誤",
+        "電量、充電狀態和低電量警告。掃地機器人回報錯誤或離線時會被標示出來。"
+      ],
+      [
+        "你的 Roborock 場景",
+        "在 Roborock App 建立的場景會變成開關，點一下或用自動化就能跑完整套流程。"
+      ],
+      [
+        "基座洗拖布",
+        "基座能清洗拖布的機型會多一個開關：可以開始或停止清洗，而且不論從哪裡啟動，只要基座正在清洗就會顯示為開啟。"
+      ],
+      [
+        "濾網與刷子",
+        "透過 HomeKit 時，顯示濾網、主刷和邊刷的剩餘壽命，快用完時會提醒你。"
+      ],
+      [
+        "目前房間送到 MQTT",
+        "可選擇把正在打掃的房間發佈到你的 MQTT broker，讓燈光或其他自動化跟著掃地機器人走。"
+      ]
+    ],
+    "matter_h2": "Matter：真正的掃地機器人控制",
+    "beta": "Beta",
+    "matter_p": "為掃地機器人選擇 Matter，Apple「家庭」就會把它顯示成掃地機器人而不是風扇：可以選擇要打掃的房間、切換吸塵、拖地或兩者並行，還能送它回充電座。Google Home、Alexa 和 SmartThings 也能使用。",
+    "matter_p2": "Apple「家庭」對 Matter 掃地機器人的支援還很新。配對時會出現「未經認證的配件」警告，iOS 更新後偶爾也會有些小狀況。想要最穩定的體驗，請繼續使用 HomeKit。",
+    "choose_h3": "每台分別選擇",
+    "choose_p": "在外掛設定中載入裝置，再為每台掃地機器人三選一。",
+    "choices": [
+      ["HomeKit (HAP)", "預設選項。穩定、熟悉的風扇樣式方塊。"],
+      [
+        "Matter (Beta)",
+        "原生的掃地機器人控制和分房清掃。需要開啟 Matter 的 Homebridge 2；分房清掃需要 iOS 18.4 以上。"
+      ],
+      ["略過", "不把這台放進 Apple「家庭」，例如別人家分享給你的掃地機器人。"]
+    ],
+    "switch_note": "把掃地機器人改成另一種協定時，配件會重新建立，之後需要重新設定它的房間和自動化。",
+    "dev_h2": "支援 Roborock App 裡的掃地機器人",
+    "dev_p": "用你在 Roborock App 使用的帳號登入，外掛會自動找到你的掃地機器人。以下機型已確認可用，Roborock App 裡的其他機型大多也能使用。",
+    "models": [
+      "S4",
+      "S4 Max",
+      "S5 Max",
+      "S6",
+      "S6 Pure",
+      "S6 MaxV",
+      "S7",
+      "S7 MaxV (Ultra)",
+      "S7 Pro Ultra",
+      "S7 Max Ultra",
+      "S8",
+      "S8 Pro Ultra",
+      "Q5+",
+      "Q5 Pro",
+      "Q7",
+      "Q7 Max",
+      "Q8 Max",
+      "Qrevo",
+      "Qrevo Pro",
+      "Qrevo S",
+      "Qrevo Curv",
+      "Saros 10"
+    ],
+    "mihome_h3": "只在米家 App 裡？",
+    "mihome_p": "外掛看得到的是你 Roborock 帳號裡的掃地機器人。只在米家（Xiaomi Home）App 設定的掃地機器人不在這個帳號裡，所以不會出現。",
+    "start_h2": "幾分鐘就能設定好",
+    "steps": [
+      [
+        "安裝外掛",
+        "在 Homebridge UI 打開「外掛」，搜尋 Roborock Vacuum，安裝 homebridge-roborock-vacuum。"
+      ],
+      [
+        "登入",
+        "在外掛設定輸入 Roborock App 的 email，用密碼或 email 收到的驗證碼登入。區域會自動偵測。"
+      ],
+      [
+        "選擇並重新啟動",
+        "按下 Load devices，為每台掃地機器人選擇 HomeKit、Matter 或略過，然後重新啟動 Homebridge。"
+      ]
+    ],
+    "start_note": "需要 Homebridge 1.6 以上，以及 Node.js 18.20、20.15、22 或 24。Matter 需要開啟 Matter 的 Homebridge 2。",
+    "docs": "完整說明文件（英文）",
+    "support_h2": "讓它維持免費",
+    "support_p": "這個外掛沒有廣告，也沒有付費版。如果它幫你省下一些家事，一杯珍奶或一點贊助，能幫我持續跟上 Roborock 的新機型和新韌體。",
+    "boba": "請我喝珍奶",
+    "paypal": "用 PayPal 贊助",
+    "support_card": "珍奶贊助直接刷卡，不需要 PayPal 帳號。",
+    "made": "由 tasict 製作，以 copystring 的 ioBroker.roborock 為基礎，採用 MIT 授權釋出。",
+    "changelog": "更新紀錄",
+    "npm": "npm 套件",
+    "issues": "回報問題",
+    "tm": "Roborock（石頭科技）是 Beijing Roborock Technology Co., Ltd. 的商標；Apple Home（家庭）與 HomeKit 是 Apple Inc. 的商標；Matter 是 Connectivity Standards Alliance 的商標。本外掛為非官方專案，與上述公司無關，也未獲其背書。"
+  },
+  "ja": {
+    "title": "Roborock Vacuum for Homebridge：Roborock のロボット掃除機を Apple「ホーム」に",
+    "desc": "Roborock のロボット掃除機を HomeKit または Matter で Apple「ホーム」に追加する無料の Homebridge プラグイン。Roborock のクラウドが止まっても、家のネットワーク内で操作を続けられます。",
+    "lang_menu": "言語",
+    "source": "ソースコード",
+    "h1": "Roborock を\n「ホーム」App で。",
+    "lede": "Roborock のロボット掃除機を HomeKit または Matter で「ホーム」App に追加する Homebridge プラグインです。Siri やオートメーションで掃除を始められ、Roborock のクラウドが止まっても家のネットワーク内で操作できます。",
+    "cta": "はじめる",
+    "github": "GitHub で見る",
+    "fine": "無料のオープンソース。Homebridge 1.6 以降に対応し、Matter には Homebridge 2 が必要です。",
+    "vac": "ロボット掃除機",
+    "rooms": {
+      "living": "リビング",
+      "kitchen": "キッチン",
+      "bedroom": "寝室",
+      "study": "書斎"
+    },
+    "st_docked": "ドックで待機中",
+    "st_charging": "充電中",
+    "st_cleaning": "{room}を掃除中",
+    "st_returning": "ドックに戻っています",
+    "st_paused": "一時停止中",
+    "start": "開始",
+    "pause": "一時停止",
+    "dock": "ドックへ",
+    "rooms_legend": "掃除する部屋",
+    "rooms_all": "家全体",
+    "rooms_some": "4 部屋中 {n} 部屋",
+    "battery": "バッテリー {b}",
+    "demo_hint": "試してみてください。部屋を選ぶか、選ばなければ家全体を掃除します。部屋ごとの掃除には Matter と iOS 18.4 以降が必要です。",
+    "map_alt": "4 部屋の間取り図。掃除機がドックを出て、選んだ部屋を掃除して戻ります。",
+    "local_h2": "クラウドが止まっても使える",
+    "local_p": "Roborock のクラウドが必要なのは、サインインとデバイス一覧の取得のときだけです。操作は家のネットワーク経由で掃除機に直接届きます。Homebridge の起動時にクラウドにつながらなくても、保存済みのデバイス一覧で起動し、シーンなどのクラウド機能はクラウドの復旧後に自動で戻ります。",
+    "flow": [
+      ["「ホーム」App", "iPhone、iPad、Mac、HomePod"],
+      ["Homebridge", "プラグインを実行"],
+      ["Roborock 掃除機", "家の Wi-Fi に接続"]
+    ],
+    "flow_links": ["HomeKit または Matter", "家のネットワーク"],
+    "local_note": "デバイス一覧を保存するため、最初に一度はオンラインで起動する必要があります。別の Roborock アカウントから共有された掃除機は、クラウド経由でのみ操作できます。",
+    "feat_h2": "「ホーム」App でできること",
+    "feat_p": "それぞれの掃除機が、実際に備えている操作と情報を持って表示されます。",
+    "feats": [
+      [
+        "開始・停止・ドックへ戻す",
+        "HomeKit では扇風機タイプのタイルとして表示されます。オンで掃除を開始し、オフで停止してドックに戻ります。Siri、シーン、オートメーションにも対応します。"
+      ],
+      [
+        "バッテリー・充電・エラー",
+        "バッテリー残量、充電状態、バッテリー低下の警告。エラーを報告したりオフラインになった掃除機は、そのことが表示されます。"
+      ],
+      [
+        "Roborock のシーン",
+        "Roborock App で作ったシーンがスイッチになり、タップ 1 回やオートメーションで一連の掃除を実行できます。"
+      ],
+      [
+        "ドックでのモップ洗浄",
+        "モップを洗えるドックでは、洗浄を開始・停止するスイッチが追加されます。どこから始めた洗浄でも、洗浄中はオンになります。"
+      ],
+      [
+        "フィルターとブラシ",
+        "HomeKit では、フィルター、メインブラシ、サイドブラシの残り寿命を表示し、交換時期が近づくとお知らせします。"
+      ],
+      [
+        "掃除中の部屋を MQTT へ",
+        "掃除中の部屋を MQTT ブローカーに送ることもでき、照明などのオートメーションを掃除機に合わせて動かせます。"
+      ]
+    ],
+    "matter_h2": "Matter で本来の掃除機操作を",
+    "beta": "ベータ",
+    "matter_p": "掃除機に Matter を選ぶと、Apple「ホーム」では扇風機ではなくロボット掃除機として表示されます。掃除する部屋を選び、吸引・モップ・両方を切り替え、ドックに戻すこともできます。Google Home、Alexa、SmartThings でも使えます。",
+    "matter_p2": "Apple「ホーム」の Matter 掃除機対応はまだ新しく、ペアリング時に「認証されていないアクセサリ」の警告が出たり、iOS のアップデート後にときどき不調が出たりします。いちばん安定して使いたい場合は HomeKit のままにしてください。",
+    "choose_h3": "掃除機ごとに選べます",
+    "choose_p": "プラグインの設定でデバイスを読み込み、掃除機ごとに次の 3 つから選びます。",
+    "choices": [
+      [
+        "HomeKit (HAP)",
+        "既定の設定。安定した、おなじみの扇風機タイプのタイルです。"
+      ],
+      [
+        "Matter（ベータ）",
+        "掃除機本来の操作と部屋ごとの掃除。Matter を有効にした Homebridge 2 が必要で、部屋ごとの掃除には iOS 18.4 以降が必要です。"
+      ],
+      [
+        "スキップ",
+        "別の家から共有された掃除機などを、Apple「ホーム」に追加しません。"
+      ]
+    ],
+    "switch_note": "掃除機のプロトコルを切り替えるとアクセサリが作り直されるため、部屋とオートメーションを設定し直してください。",
+    "dev_h2": "Roborock App の掃除機に対応",
+    "dev_p": "Roborock App で使っているアカウントでサインインすると、プラグインが掃除機を自動で見つけます。次の機種は動作が確認されており、Roborock App のほかの掃除機もほとんど使えます。",
+    "models": [
+      "S4",
+      "S4 Max",
+      "S5 Max",
+      "S6",
+      "S6 Pure",
+      "S6 MaxV",
+      "S7",
+      "S7 MaxV (Ultra)",
+      "S7 Pro Ultra",
+      "S7 Max Ultra",
+      "S8",
+      "S8 Pro Ultra",
+      "Q5+",
+      "Q5 Pro",
+      "Q7",
+      "Q7 Max",
+      "Q8 Max",
+      "Qrevo",
+      "Qrevo Pro",
+      "Qrevo S",
+      "Qrevo Curv",
+      "Saros 10"
+    ],
+    "mihome_h3": "Xiaomi Home だけで使っている場合",
+    "mihome_p": "プラグインが見つけられるのは、Roborock アカウントに登録された掃除機です。Xiaomi Home App だけで設定した掃除機はこのアカウントにないため、表示されません。",
+    "start_h2": "数分でセットアップ",
+    "steps": [
+      [
+        "プラグインをインストール",
+        "Homebridge UI で「プラグイン」を開き、Roborock Vacuum を検索して homebridge-roborock-vacuum をインストールします。"
+      ],
+      [
+        "サインイン",
+        "プラグインの設定で Roborock App のメールアドレスを入力し、パスワードかメールで届くコードでサインインします。リージョンは自動で判別されます。"
+      ],
+      [
+        "選んで再起動",
+        "Load devices を押し、掃除機ごとに HomeKit、Matter、スキップのいずれかを選んで、Homebridge を再起動します。"
+      ]
+    ],
+    "start_note": "Homebridge 1.6 以降と、Node.js 18.20、20.15、22、24 のいずれかが必要です。Matter には Matter を有効にした Homebridge 2 が必要です。",
+    "docs": "詳しいドキュメント（英語）",
+    "support_h2": "無料のままで続けるために",
+    "support_p": "このプラグインには広告も有料版もありません。家事が少しでも楽になっていたら、タピオカ 1 杯や少しのご支援が、Roborock の新機種や新しいファームウェアへの対応を続ける力になります。",
+    "boba": "タピオカをおごる",
+    "paypal": "PayPal で支援",
+    "support_card": "タピオカはクレジットカードで支払えます。PayPal アカウントは不要です。",
+    "made": "tasict 作。copystring の ioBroker.roborock をもとにしています。MIT ライセンスで公開しています。",
+    "changelog": "変更履歴",
+    "npm": "npm パッケージ",
+    "issues": "問題を報告",
+    "tm": "Roborock は Beijing Roborock Technology Co., Ltd. の商標です。Apple Home（ホーム）と HomeKit は Apple Inc. の商標、Matter は Connectivity Standards Alliance の商標です。本プラグインは非公式で、これらの企業とは関係がなく、承認も受けていません。"
+  }
+}

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roborock Vacuum for Homebridge：Roborock のロボット掃除機を Apple「ホーム」に</title>
+<meta name="description" content="Roborock のロボット掃除機を HomeKit または Matter で Apple「ホーム」に追加する無料の Homebridge プラグイン。Roborock のクラウドが止まっても、家のネットワーク内で操作を続けられます。">
+<link rel="canonical" href="https://tasict.github.io/homebridge-roborock-vacuum/ja/">
+<link rel="alternate" hreflang="en" href="https://tasict.github.io/homebridge-roborock-vacuum/">
+<link rel="alternate" hreflang="zh-TW" href="https://tasict.github.io/homebridge-roborock-vacuum/zh-TW/">
+<link rel="alternate" hreflang="ja" href="https://tasict.github.io/homebridge-roborock-vacuum/ja/">
+<link rel="alternate" hreflang="x-default" href="https://tasict.github.io/homebridge-roborock-vacuum/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Roborock Vacuum for Homebridge：Roborock のロボット掃除機を Apple「ホーム」に">
+<meta property="og:description" content="Roborock のロボット掃除機を HomeKit または Matter で Apple「ホーム」に追加する無料の Homebridge プラグイン。Roborock のクラウドが止まっても、家のネットワーク内で操作を続けられます。">
+<meta property="og:url" content="https://tasict.github.io/homebridge-roborock-vacuum/ja/">
+<meta property="og:image" content="https://tasict.github.io/homebridge-roborock-vacuum/assets/og.png">
+<meta property="og:locale" content="ja_JP">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#faf6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1413" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../assets/icon.png">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<header class="wrap masthead">
+  <a class="wordmark" href="./"><img src="../assets/icon.svg" alt="" width="30" height="30">Roborock Vacuum</a>
+  <a href="https://github.com/tasict/homebridge-roborock-vacuum">ソースコード</a>
+  <a class="tip head-tip" href="https://tasict.bobaboba.me" aria-label="タピオカをおごる"><img src="../assets/boba.png" alt="" width="24" height="24"><span>タピオカをおごる</span></a>
+  <details class="lang">
+    <summary aria-label="言語"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7.5"/><path d="M2.5 10h15M10 2.5c2.2 2.3 3.2 4.8 3.2 7.5s-1 5.2-3.2 7.5c-2.2-2.3-3.2-4.8-3.2-7.5s1-5.2 3.2-7.5z"/></svg><span>日本語</span></summary>
+    <ul><li><a href="../" hreflang="en" lang="en">English</a></li><li><a href="../zh-TW/" hreflang="zh-TW" lang="zh-Hant-TW">繁體中文</a></li><li><a href="../ja/" hreflang="ja" lang="ja" aria-current="page">日本語</a></li></ul>
+  </details>
+</header>
+
+<main>
+<div class="wrap">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <h1 id="hero-title">Roborock を<br>「ホーム」App で。</h1>
+      <p class="lede">Roborock のロボット掃除機を HomeKit または Matter で「ホーム」App に追加する Homebridge プラグインです。Siri やオートメーションで掃除を始められ、Roborock のクラウドが止まっても家のネットワーク内で操作できます。</p>
+      <div class="actions">
+        <a class="btn" href="#start">はじめる</a>
+        <a href="https://github.com/tasict/homebridge-roborock-vacuum">GitHub で見る</a>
+      </div>
+      <p class="fine">無料のオープンソース。Homebridge 1.6 以降に対応し、Matter には Homebridge 2 が必要です。</p>
+    </div>
+    <div class="stage" data-demo data-state="docked" data-t='{&quot;rooms&quot;:{&quot;living&quot;:&quot;リビング&quot;,&quot;kitchen&quot;:&quot;キッチン&quot;,&quot;bedroom&quot;:&quot;寝室&quot;,&quot;study&quot;:&quot;書斎&quot;},&quot;st&quot;:{&quot;docked&quot;:&quot;ドックで待機中&quot;,&quot;charging&quot;:&quot;充電中&quot;,&quot;cleaning&quot;:&quot;{room}を掃除中&quot;,&quot;returning&quot;:&quot;ドックに戻っています&quot;,&quot;paused&quot;:&quot;一時停止中&quot;},&quot;start&quot;:&quot;開始&quot;,&quot;pause&quot;:&quot;一時停止&quot;,&quot;all&quot;:&quot;家全体&quot;,&quot;some&quot;:&quot;4 部屋中 {n} 部屋&quot;,&quot;battery&quot;:&quot;バッテリー {b}&quot;}'>
+      <svg class="plan" viewBox="0 0 480 300" role="img" aria-label="4 部屋の間取り図。掃除機がドックを出て、選んだ部屋を掃除して戻ります。">
+      <rect class="walls" x="10" y="10" width="460" height="280" rx="14"/>
+      <g class="areas">
+        <g class="area" data-room="living" data-rect="20 20 255 145"><rect x="20" y="20" width="255" height="145" rx="6"/><text x="147.5" y="92.5">リビング</text></g>
+        <g class="area" data-room="kitchen" data-rect="285 20 175 120"><rect x="285" y="20" width="175" height="120" rx="6"/><text x="372.5" y="80">キッチン</text></g>
+        <g class="area" data-room="bedroom" data-rect="285 150 175 130"><rect x="285" y="150" width="175" height="130" rx="6"/><text x="372.5" y="215">寝室</text></g>
+        <g class="area" data-room="study" data-rect="20 175 255 105"><rect x="20" y="175" width="255" height="105" rx="6"/><text x="147.5" y="227.5">書斎</text></g>
+      </g>
+      <g class="doors">
+        <rect class="door" data-door="living kitchen 280 105" x="275" y="85" width="10" height="40"/>
+        <rect class="door" data-door="living study 215 170" x="190" y="165" width="50" height="10"/>
+        <rect class="door" data-door="kitchen bedroom 372 145" x="347" y="140" width="50" height="10"/>
+        <rect class="door" data-door="study bedroom 280 228" x="275" y="208" width="10" height="40"/>
+      </g>
+      <path class="trail" d=""/>
+      <rect class="dock" x="20" y="46" width="9" height="32" rx="3"/>
+      <g class="bot" data-dock="42 62" transform="translate(42 62)">
+        <circle class="bot-body" r="12"/>
+        <path class="bot-bumper" d="M-9.5 -6.5a11.5 11.5 0 0 1 19 0"/>
+        <circle class="bot-eye" cy="-4" r="3.4"/>
+      </g>
+    </svg>
+      <div class="tile">
+        <div class="tile-head">
+          <span class="tile-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12.5" r="8"/><path d="M5.2 6.6a9.6 9.6 0 0 1 13.6 0"/><circle cx="12" cy="9.2" r="2.2"/></svg></span>
+          <div class="tile-name"><strong>ロボット掃除機</strong><span data-status aria-live="polite"></span></div>
+          <span class="tile-battery" data-battery></span>
+        </div>
+        <fieldset class="picks">
+          <legend>掃除する部屋<span data-summary></span></legend>
+          <div class="chips">
+            <button type="button" class="chip-btn" data-pick="living" aria-pressed="false">リビング</button>
+            <button type="button" class="chip-btn" data-pick="kitchen" aria-pressed="false">キッチン</button>
+            <button type="button" class="chip-btn" data-pick="bedroom" aria-pressed="false">寝室</button>
+            <button type="button" class="chip-btn" data-pick="study" aria-pressed="false">書斎</button>
+          </div>
+        </fieldset>
+        <div class="controls">
+          <button type="button" class="go" data-go>開始</button>
+          <button type="button" class="home" data-home>ドックへ</button>
+        </div>
+      </div>
+      <p class="hint">試してみてください。部屋を選ぶか、選ばなければ家全体を掃除します。部屋ごとの掃除には Matter と iOS 18.4 以降が必要です。</p>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="h-local">
+    <div class="intro">
+      <h2 id="h-local">クラウドが止まっても使える</h2>
+      <p>Roborock のクラウドが必要なのは、サインインとデバイス一覧の取得のときだけです。操作は家のネットワーク経由で掃除機に直接届きます。Homebridge の起動時にクラウドにつながらなくても、保存済みのデバイス一覧で起動し、シーンなどのクラウド機能はクラウドの復旧後に自動で戻ります。</p>
+    </div>
+    <ol class="flow">
+        <li class="node"><span class="node-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M9.5 12 12 9.8l2.5 2.2M10.3 11.3v3.2h3.4v-3.2"/></svg></span><strong>「ホーム」App</strong><small>iPhone、iPad、Mac、HomePod</small></li><li class="link" aria-hidden="true"><span>HomeKit または Matter</span></li>
+        <li class="node"><span class="node-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="6" rx="1.5"/><rect x="3" y="13" width="18" height="6" rx="1.5"/><path d="M7 8h.01M7 16h.01"/></svg></span><strong>Homebridge</strong><small>プラグインを実行</small></li><li class="link" aria-hidden="true"><span>家のネットワーク</span></li>
+        <li class="node"><span class="node-icon"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12.5" r="8"/><path d="M5.2 6.6a9.6 9.6 0 0 1 13.6 0"/><circle cx="12" cy="9.2" r="2.2"/></svg></span><strong>Roborock 掃除機</strong><small>家の Wi-Fi に接続</small></li>
+    </ol>
+    <p class="fine note">デバイス一覧を保存するため、最初に一度はオンラインで起動する必要があります。別の Roborock アカウントから共有された掃除機は、クラウド経由でのみ操作できます。</p>
+  </section>
+
+  <section class="band" aria-labelledby="h-feat">
+    <div class="intro">
+      <h2 id="h-feat">「ホーム」App でできること</h2>
+      <p>それぞれの掃除機が、実際に備えている操作と情報を持って表示されます。</p>
+    </div>
+    <ul class="feats"><li><h3>開始・停止・ドックへ戻す</h3><p>HomeKit では扇風機タイプのタイルとして表示されます。オンで掃除を開始し、オフで停止してドックに戻ります。Siri、シーン、オートメーションにも対応します。</p></li><li><h3>バッテリー・充電・エラー</h3><p>バッテリー残量、充電状態、バッテリー低下の警告。エラーを報告したりオフラインになった掃除機は、そのことが表示されます。</p></li><li><h3>Roborock のシーン</h3><p>Roborock App で作ったシーンがスイッチになり、タップ 1 回やオートメーションで一連の掃除を実行できます。</p></li><li><h3>ドックでのモップ洗浄</h3><p>モップを洗えるドックでは、洗浄を開始・停止するスイッチが追加されます。どこから始めた洗浄でも、洗浄中はオンになります。</p></li><li><h3>フィルターとブラシ</h3><p>HomeKit では、フィルター、メインブラシ、サイドブラシの残り寿命を表示し、交換時期が近づくとお知らせします。</p></li><li><h3>掃除中の部屋を MQTT へ</h3><p>掃除中の部屋を MQTT ブローカーに送ることもでき、照明などのオートメーションを掃除機に合わせて動かせます。</p></li></ul>
+  </section>
+
+  <section class="band" aria-labelledby="h-matter">
+    <div class="split">
+      <div class="intro">
+        <h2 id="h-matter">Matter で本来の掃除機操作を <span class="chip">ベータ</span></h2>
+        <p>掃除機に Matter を選ぶと、Apple「ホーム」では扇風機ではなくロボット掃除機として表示されます。掃除する部屋を選び、吸引・モップ・両方を切り替え、ドックに戻すこともできます。Google Home、Alexa、SmartThings でも使えます。</p>
+        <p>Apple「ホーム」の Matter 掃除機対応はまだ新しく、ペアリング時に「認証されていないアクセサリ」の警告が出たり、iOS のアップデート後にときどき不調が出たりします。いちばん安定して使いたい場合は HomeKit のままにしてください。</p>
+      </div>
+      <div class="panel">
+        <h3>掃除機ごとに選べます</h3>
+        <p class="panel-p">プラグインの設定でデバイスを読み込み、掃除機ごとに次の 3 つから選びます。</p>
+        <ul class="choices"><li><h3>HomeKit (HAP)</h3><p>既定の設定。安定した、おなじみの扇風機タイプのタイルです。</p></li><li><h3>Matter（ベータ）</h3><p>掃除機本来の操作と部屋ごとの掃除。Matter を有効にした Homebridge 2 が必要で、部屋ごとの掃除には iOS 18.4 以降が必要です。</p></li><li><h3>スキップ</h3><p>別の家から共有された掃除機などを、Apple「ホーム」に追加しません。</p></li></ul>
+        <p class="back">掃除機のプロトコルを切り替えるとアクセサリが作り直されるため、部屋とオートメーションを設定し直してください。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="h-dev">
+    <div class="intro">
+      <h2 id="h-dev">Roborock App の掃除機に対応</h2>
+      <p>Roborock App で使っているアカウントでサインインすると、プラグインが掃除機を自動で見つけます。次の機種は動作が確認されており、Roborock App のほかの掃除機もほとんど使えます。</p>
+    </div>
+    <ul class="models"><li>S4</li><li>S4 Max</li><li>S5 Max</li><li>S6</li><li>S6 Pure</li><li>S6 MaxV</li><li>S7</li><li>S7 MaxV (Ultra)</li><li>S7 Pro Ultra</li><li>S7 Max Ultra</li><li>S8</li><li>S8 Pro Ultra</li><li>Q5+</li><li>Q5 Pro</li><li>Q7</li><li>Q7 Max</li><li>Q8 Max</li><li>Qrevo</li><li>Qrevo Pro</li><li>Qrevo S</li><li>Qrevo Curv</li><li>Saros 10</li></ul>
+    <div class="aside">
+      <h3>Xiaomi Home だけで使っている場合</h3>
+      <p>プラグインが見つけられるのは、Roborock アカウントに登録された掃除機です。Xiaomi Home App だけで設定した掃除機はこのアカウントにないため、表示されません。</p>
+    </div>
+  </section>
+
+  <section class="band" id="start" aria-labelledby="h-start">
+    <h2 id="h-start">数分でセットアップ</h2>
+    <ol class="steps"><li><h3>プラグインをインストール</h3><p>Homebridge UI で「プラグイン」を開き、Roborock Vacuum を検索して homebridge-roborock-vacuum をインストールします。</p></li><li><h3>サインイン</h3><p>プラグインの設定で Roborock App のメールアドレスを入力し、パスワードかメールで届くコードでサインインします。リージョンは自動で判別されます。</p></li><li><h3>選んで再起動</h3><p>Load devices を押し、掃除機ごとに HomeKit、Matter、スキップのいずれかを選んで、Homebridge を再起動します。</p></li></ol>
+    <p class="fine">Homebridge 1.6 以降と、Node.js 18.20、20.15、22、24 のいずれかが必要です。Matter には Matter を有効にした Homebridge 2 が必要です。 <a href="https://github.com/tasict/homebridge-roborock-vacuum#readme">詳しいドキュメント（英語）</a></p>
+  </section>
+
+  <section class="band" aria-labelledby="h-support">
+    <div class="tipjar">
+      <img src="../assets/boba.png" alt="" width="120" height="120">
+      <div>
+        <h2 id="h-support">無料のままで続けるために</h2>
+        <p>このプラグインには広告も有料版もありません。家事が少しでも楽になっていたら、タピオカ 1 杯や少しのご支援が、Roborock の新機種や新しいファームウェアへの対応を続ける力になります。</p>
+        <div class="actions">
+          <a class="btn" href="https://tasict.bobaboba.me"><img src="../assets/boba.png" alt="" width="22" height="22">タピオカをおごる</a>
+          <a class="tip" href="https://paypal.me/tasict">PayPal で支援</a>
+        </div>
+        <p class="fine">タピオカはクレジットカードで支払えます。PayPal アカウントは不要です。</p>
+      </div>
+    </div>
+  </section>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <p>tasict 作。copystring の ioBroker.roborock をもとにしています。MIT ライセンスで公開しています。</p>
+        <ul>
+          <li><a href="https://github.com/tasict/homebridge-roborock-vacuum">ソースコード</a></li>
+          <li><a href="https://www.npmjs.com/package/homebridge-roborock-vacuum">npm パッケージ</a></li>
+          <li><a href="https://github.com/tasict/homebridge-roborock-vacuum/blob/master/CHANGELOG.md">変更履歴</a></li>
+          <li><a href="https://github.com/tasict/homebridge-roborock-vacuum/issues">問題を報告</a></li>
+          <li><a href="https://github.com/copystring/ioBroker.roborock">ioBroker.roborock</a></li>
+        </ul>
+      </div>
+      <ul class="langs"><li><a href="../" hreflang="en" lang="en">English</a></li><li><a href="../zh-TW/" hreflang="zh-TW" lang="zh-Hant-TW">繁體中文</a></li><li><a href="../ja/" hreflang="ja" lang="ja" aria-current="page">日本語</a></li></ul>
+    </div>
+    <p class="tm">Roborock は Beijing Roborock Technology Co., Ltd. の商標です。Apple Home（ホーム）と HomeKit は Apple Inc. の商標、Matter は Connectivity Standards Alliance の商標です。本プラグインは非公式で、これらの企業とは関係がなく、承認も受けていません。</p>
+  </div>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>
