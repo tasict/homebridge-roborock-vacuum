@@ -1,17 +1,19 @@
-Plan.md
 dist
+node_modules
+coverage
+.DS_Store
+.idea/
+.vscode/
+*.code-workspace
+.github/prompts/
+
+# Written at runtime by roborockLib when no Homebridge storage path is given
+roborockLib/data/
 userdata.json
 UserData
 clientID
+
+# Local scripts and notes
 test.js
-node_modules
-.DS_Store
-.vscod
-.idea
-openspec/
-.opencode/
-.github/
-.gemini/
-AGENTS.md
-CLAUDE.md
-coverage
+Plan.md
+UpstreamReview-*.md
