@@ -1,17 +1,24 @@
 name: Release
 
-# Cuts a release from master: checks the code, bumps the version (commit
-# "<version>" and tag "v<version>", like `npm version`), publishes to npm
-# with trusted publishing (OIDC, no token) and creates the GitHub release
-# with the version's CHANGELOG.md section.
+# Cuts a release from master: checks and packs the code, bumps the version
+# (commit "<version>" and tag "v<version>", like `npm version`), stages the
+# package on npm with trusted publishing (OIDC, no token) and publishes the
+# GitHub release, with the version's CHANGELOG.md section, once the staged
+# version has been approved on npm.
 #
 # Before running it, commit the "## <version>" section of CHANGELOG.md; the
 # run stops before changing anything when the section is missing.
 #
-# The release is created as a draft and only published once npm publish
-# succeeded. If npm publish fails after the tag was pushed, fix the cause,
-# publish from the tag (git checkout v<version> && npm publish), then
-# publish the draft release.
+# npm only accepts `npm stage publish` from this workflow: a maintainer must
+# approve the staged version with 2FA (npmjs.com, or `npm stage approve`)
+# before it goes public. The last job waits up to 60 minutes for that and
+# then publishes the draft release; if it times out, publish the draft
+# release by hand after approving.
+#
+# Only the "prepare" job installs dependencies, and it has no write or
+# id-token permission; the job holding the OIDC permission never runs
+# third-party install scripts, and publishes the packed tarball (npm runs
+# no lifecycle scripts for a tarball).
 on:
   workflow_dispatch:
     inputs:
@@ -20,18 +27,22 @@ on:
         required: true
         default: patch
 
-permissions:
-  contents: write # push the version commit and tag, create the release
-  id-token: write # npm trusted publishing
+permissions: {}
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  release:
+  prepare:
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      name: ${{ steps.version.outputs.name }}
+      version: ${{ steps.version.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -40,41 +51,85 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: npm
-
-      # Trusted publishing needs npm 11.5.1 or later.
-      - run: npm install -g npm@^11.5.1
 
       - run: npm ci
       - run: npm run lint
       - run: npm run build
       - run: npm test
 
-      - name: Bump version
+      - name: Resolve version
         id: version
         env:
           REQUESTED: ${{ inputs.version }}
         run: |
-          npm version "$REQUESTED" --no-git-tag-version
+          npm version "$REQUESTED" --no-git-tag-version --ignore-scripts
+          NAME=$(node -p 'require("./package.json").name')
           VERSION=$(node -p 'require("./package.json").version')
 
           if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
             echo "::error::Tag v$VERSION already exists."
             exit 1
           fi
-          if npm view "$(node -p 'require("./package.json").name')@$VERSION" version 2>/dev/null | grep -q .; then
+          if curl -fsS -o /dev/null "https://registry.npmjs.org/$NAME/$VERSION"; then
             echo "::error::Version $VERSION is already on npm."
             exit 1
           fi
 
-          node scripts/changelog_section.js "$VERSION" > "$RUNNER_TEMP/notes.md"
+          mkdir -p "$RUNNER_TEMP/release"
+          node scripts/changelog_section.js "$VERSION" > "$RUNNER_TEMP/release/notes.md"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Commit and tag
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+      - name: Pack
+        id: pack
         run: |
+          TARBALL=$(npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/release" | tail -n 1)
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the version commit and tag, create the release
+      id-token: write # npm trusted publishing
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TARBALL: ${{ needs.prepare.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+
+      # No dependency installs here: npm version edits package.json and
+      # package-lock.json only, and scripts are skipped.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Check npm
+        run: |
+          # npm stage needs npm 11.15.0 or later (trusted publishing 11.5.1).
+          node -e '
+            const [major, minor] = process.argv[1].split(".").map(Number);
+            if (major < 11 || (major === 11 && minor < 15)) {
+              console.error(`npm ${process.argv[1]} is too old for npm stage publish.`);
+              process.exit(1);
+            }' "$(npm --version)"
+
+      - name: Commit and tag
+        run: |
+          npm version "$VERSION" --no-git-tag-version --ignore-scripts
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           git commit -am "$VERSION"
@@ -84,16 +139,37 @@ jobs:
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh release create "v$VERSION" --draft --verify-tag \
-            --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+            --title "v$VERSION" --notes-file "$RUNNER_TEMP/release/notes.md"
 
-      - name: Publish to npm
-        run: npm publish
+      - name: Stage on npm
+        run: npm stage publish "$RUNNER_TEMP/release/$TARBALL"
+
+  release:
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions:
+      contents: write # publish the draft release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      NAME: ${{ needs.prepare.outputs.name }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Wait for approval on npm
+        run: |
+          echo "Approve the staged $NAME@$VERSION on npmjs.com (or npm stage approve) to finish the release."
+          for _ in $(seq 120); do
+            if curl -fsS -o /dev/null "https://registry.npmjs.org/$NAME/$VERSION"; then
+              echo "$NAME@$VERSION is on npm."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::$NAME@$VERSION was not approved within 60 minutes. After approving it, publish the draft release v$VERSION by hand."
+          exit 1
 
       - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
         run: gh release edit "v$VERSION" --draft=false --latest
