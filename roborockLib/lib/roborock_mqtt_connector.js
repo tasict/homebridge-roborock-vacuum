@@ -237,6 +237,10 @@ class roborock_mqtt_connector {
               `Cloud message with protocol 102 received. Result: ${data.payload}`
             );
 
+            if (typeof this.adapter.recordStatusBroadcast === "function") {
+              this.adapter.recordStatusBroadcast(duid, dps);
+            }
+
             if (this.adapter.deviceNotify !== undefined) {
               this.adapter.deviceNotify(
                 "CloudMessage",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.9
+
+- **Fix (status)**: Vacuum status (state, battery, charging, error, fan and water settings) now comes from the vacuum itself. The plugin polls `get_status` on every refresh and keeps the real-time status broadcasts, instead of relying on the cloud's home-data snapshot, which can lag behind the device. This fixes Matter vacuums that kept an old state, such as "Return to dock" staying available while the vacuum was already docked (#60). HAP accessories read the same status
+
 ## 2.2.8
 
 - **New**: Project website in English, Traditional Chinese and Japanese: [tasict.github.io/homebridge-roborock-vacuum](https://tasict.github.io/homebridge-roborock-vacuum/). It is now the plugin's homepage in the Homebridge UI

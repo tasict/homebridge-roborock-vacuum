@@ -83,6 +83,7 @@ const DPS_STATUS_FIELDS: Record<string, string> = {
   "122": "battery",
   "123": "fan_power",
   "124": "water_box_mode",
+  "133": "charge_status",
 };
 
 function translateDpsFields(payload: Record<string, any>): Record<string, any> {
@@ -342,12 +343,10 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
         // Scenes load asynchronously; sync the Matter scene buttons once
         // they are available (or when they change).
         self.syncMatterScenes();
-        // The HomeData refresh is the only periodic status source — the
-        // roborockLib get_status interval runs but its results never reach
-        // the cache this plugin reads (gated on an unset config field, and
-        // written to a state path getVacuumDeviceStatus does not read).
-        // Mirror it into the Matter vacuums the same way updateDeviceState
-        // does for the HAP accessories.
+        // Periodic status sync. getVacuumDeviceStatus serves the device's
+        // live status (get_status polls and broadcasts) and falls back to
+        // the HomeData snapshot. Mirror it into the Matter vacuums the same
+        // way updateDeviceState does for the HAP accessories.
         for (const matterVacuum of self.matterVacuums.values()) {
           matterVacuum.refreshFromDevice();
         }

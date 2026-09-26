@@ -18,6 +18,18 @@ const messageQueueHandler =
   require("./lib/messageQueueHandler").messageQueueHandler;
 const mqtt = require("mqtt");
 
+// Schema ids of the status fields in spontaneous status broadcasts
+// (python-roborock RoborockDataProtocol). src/platform.ts translates the
+// same ids for the accessories.
+const DPS_STATUS_FIELDS = {
+  120: "error_code",
+  121: "state",
+  122: "battery",
+  123: "fan_power",
+  124: "water_box_mode",
+  133: "charge_status",
+};
+
 function md5hex(str) {
   return crypto.createHash("md5").update(str).digest("hex");
 }
@@ -120,6 +132,12 @@ class Roborock {
     this.localCloudPreference = new Map();
     this.localFailoverThreshold = 3; // consecutive local timeouts before preferring cloud
     this.localFailoverInterval = 5 * 60 * 1000; // 5 min preferring cloud before retrying local
+
+    // Live status reported by the device itself (get_status polls and status
+    // broadcasts), keyed by duid, then by get_status field name:
+    // { value, at }. getVacuumDeviceStatus prefers it over the HomeData
+    // deviceStatus snapshot while fresh — see getLiveStatus.
+    this.liveStatus = new Map();
 
     this.localDevices = {};
     this.remoteDevices = new Set();
@@ -1528,6 +1546,8 @@ class Roborock {
     this.log.debug(`Latest data requested`);
 
     if (this.isSupportedVacuumModel(robotModel)) {
+      await this.pollStatus(duid);
+
       await vacuum.getParameter(duid, "get_room_mapping");
 
       await vacuum.getParameter(duid, "get_consumable");
@@ -2360,7 +2380,85 @@ class Roborock {
     }
   }
 
+  // Poll get_status, the device's own status report. V1 devices only (B01
+  // devices use a different method set). The HomeData deviceStatus snapshot
+  // is a cloud-side copy that can lag behind the device, and older products'
+  // schemas lack fields such as charge_status. python-roborock polls
+  // get_status for V1 status as well.
+  async pollStatus(duid) {
+    if (this.getVacuumDeviceInfo(duid, "pv") !== "1.0") {
+      return;
+    }
+
+    if (!this.shouldPollMethod(duid, "get_status")) {
+      this.log.debug(
+        `Skipping get_status for ${duid}; backing off after repeated timeouts.`
+      );
+      return;
+    }
+
+    try {
+      const result = await this.messageQueueHandler.sendRequest(
+        duid,
+        "get_status",
+        []
+      );
+      this.recordLiveStatus(duid, Array.isArray(result) ? result[0] : result);
+    } catch (error) {
+      this.catchError(error, "get_status", duid);
+    }
+  }
+
+  // Record named status fields (a get_status result) as live status.
+  recordLiveStatus(duid, status) {
+    if (!duid || !status || typeof status !== "object") {
+      return;
+    }
+
+    const now = Date.now();
+    const fields = this.liveStatus.get(duid) || {};
+    for (const [field, value] of Object.entries(status)) {
+      if (typeof value === "number") {
+        fields[field] = { value, at: now };
+      }
+    }
+    this.liveStatus.set(duid, fields);
+  }
+
+  // Record a status broadcast, which carries schema ids instead of get_status
+  // field names (python-roborock RoborockDataProtocol).
+  recordStatusBroadcast(duid, dps) {
+    if (!dps || typeof dps !== "object") {
+      return;
+    }
+
+    const status = {};
+    for (const [dpsId, field] of Object.entries(DPS_STATUS_FIELDS)) {
+      if (dps[dpsId] !== undefined) {
+        status[field] = dps[dpsId];
+      }
+    }
+    this.recordLiveStatus(duid, status);
+  }
+
+  // A live status field, or undefined when unknown or stale. Values older
+  // than three poll intervals (polling stops while a device is offline) fall
+  // back to the HomeData snapshot.
+  getLiveStatus(duid, property) {
+    const fields = this.liveStatus.get(duid);
+    const field = fields && fields[property];
+    if (!field || Date.now() - field.at > this.updateInterval * 3 * 1000) {
+      return undefined;
+    }
+    return field.value;
+  }
+
   getVacuumDeviceStatus(duid, property) {
+    const liveValue = this.getLiveStatus(duid, property);
+    if (liveValue !== undefined) {
+      return liveValue;
+    }
+
     const propertyID = this.getVacuumSchemaId(duid, property);
 
     if (propertyID == null) {
