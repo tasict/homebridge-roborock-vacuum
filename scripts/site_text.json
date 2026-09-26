@@ -48,7 +48,7 @@
       ],
       [
         "Battery, charging and errors",
-        "Battery level, charging state and a low-battery warning. A vacuum that reports an error or goes offline is flagged."
+        "Battery level, charging state and a low-battery warning. A vacuum that reports an error or goes offline is flagged, and an error that stays after you fixed its cause can be cleared from the plugin settings."
       ],
       [
         "Your Roborock scenes",
@@ -190,7 +190,7 @@
       ],
       [
         "電量、充電與錯誤",
-        "電量、充電狀態和低電量警告。掃地機器人回報錯誤或離線時會被標示出來。"
+        "電量、充電狀態和低電量警告。掃地機器人回報錯誤或離線時會被標示出來；排除原因後仍未消失的錯誤，可以在外掛設定頁清除。"
       ],
       [
         "你的 Roborock 場景",
@@ -329,7 +329,7 @@
       ],
       [
         "バッテリー・充電・エラー",
-        "バッテリー残量、充電状態、バッテリー低下の警告。エラーを報告したりオフラインになった掃除機は、そのことが表示されます。"
+        "バッテリー残量、充電状態、バッテリー低下の警告。エラーを報告したりオフラインになった掃除機は、そのことが表示されます。原因を取り除いても消えないエラーは、プラグインの設定画面から解除できます。"
       ],
       [
         "Roborock のシーン",

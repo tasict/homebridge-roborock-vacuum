@@ -131,6 +131,19 @@ input[type="checkbox"] {
 }
 
 /* Second line inside a device row: the Matter scene-button toggle. */
+.device-error {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.device-error[hidden] {
+  display: none;
+}
+
 .scene-toggle {
   grid-column: 1 / -1;
   display: flex;

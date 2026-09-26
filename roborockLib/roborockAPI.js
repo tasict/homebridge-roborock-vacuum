@@ -2482,6 +2482,44 @@ class Roborock {
     }
   }
 
+  // Resolve an error, like tapping "Resolved" in the Roborock app. Some
+  // errors (dock errors such as water_empty) stay latched until resolved,
+  // even after the cause is fixed. Without an explicit code this resolves
+  // the current dock error, falling back to the robot error, and sends
+  // nothing when neither is set. Returns whether a resolve was sent; throws
+  // when the request fails. Mirrors python-roborock (the firmware rejects
+  // array params, so the code goes in a dict).
+  async resolveError(duid, errorCode) {
+    if (!this.isInited()) {
+      throw new Error("Adapter not inited.");
+    }
+    if (!this.vacuums[duid]) {
+      throw new Error(`resolve_error: unknown device ${duid}.`);
+    }
+    if (this.getVacuumDeviceInfo(duid, "pv") !== "1.0") {
+      throw new Error(`resolve_error is not supported by device ${duid}.`);
+    }
+
+    if (errorCode === undefined) {
+      await this.pollStatus(duid);
+      errorCode =
+        Number(this.getVacuumDeviceStatus(duid, "dock_error_status")) ||
+        Number(this.getVacuumDeviceStatus(duid, "error_code")) ||
+        0;
+      if (!errorCode) {
+        this.log.info(`No error to resolve on ${duid}.`);
+        return false;
+      }
+    }
+
+    this.log.info(`Resolving error ${errorCode} on ${duid}.`);
+    await this.messageQueueHandler.sendRequest(duid, "resolve_error", {
+      error_code: errorCode,
+    });
+    await this.pollStatus(duid);
+    return true;
+  }
+
   // Record named status fields (a get_status result) as live status.
   recordLiveStatus(duid, status) {
     if (!duid || !status || typeof status !== "object") {

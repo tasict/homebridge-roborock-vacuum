@@ -495,3 +495,68 @@ describe("cloud MQTT session health", () => {
     expect(api.cloudRestartCooldown()).toBe(30 * 60 * 1000);
   });
 });
+
+describe("resolveError", () => {
+  const HOME_DATA = {
+    products: [{ id: "p1", model: "roborock.vacuum.a117", schema: [] }],
+    devices: [{ duid: "d1", name: "Vacuum", productId: "p1", pv: "1.0" }],
+    receivedDevices: [],
+  };
+
+  function createResolveApi(status: Record<string, number>) {
+    const api = createApi();
+    api.states["HomeData"] = { val: JSON.stringify(HOME_DATA), ack: true };
+    api.bInited = true;
+    api.vacuums["d1"] = {};
+    api.messageQueueHandler = {
+      sendRequest: jest.fn(async (_duid: string, method: string) =>
+        method === "get_status" ? [status] : ["ok"]
+      ),
+    };
+    return api;
+  }
+
+  function resolveCalls(api: any) {
+    return api.messageQueueHandler.sendRequest.mock.calls.filter(
+      (call: unknown[]) => call[1] === "resolve_error"
+    );
+  }
+
+  it("resolves the dock error first, with dict params", async () => {
+    const api = createResolveApi({ dock_error_status: 38, error_code: 12 });
+
+    expect(await api.resolveError("d1")).toBe(true);
+
+    expect(resolveCalls(api)).toEqual([
+      ["d1", "resolve_error", { error_code: 38 }],
+    ]);
+    // Status is refreshed afterwards.
+    const calls = api.messageQueueHandler.sendRequest.mock.calls;
+    expect(calls[calls.length - 1][1]).toBe("get_status");
+  });
+
+  it("falls back to the robot error", async () => {
+    const api = createResolveApi({ dock_error_status: 0, error_code: 12 });
+    await api.resolveError("d1");
+    expect(resolveCalls(api)[0][2]).toEqual({ error_code: 12 });
+  });
+
+  it("sends nothing when there is no error", async () => {
+    const api = createResolveApi({ dock_error_status: 0, error_code: 0 });
+    expect(await api.resolveError("d1")).toBe(false);
+    expect(resolveCalls(api)).toEqual([]);
+  });
+
+  it("propagates a failed request", async () => {
+    const api = createResolveApi({ error_code: 12 });
+    api.messageQueueHandler.sendRequest.mockImplementation(
+      async (_duid: string, method: string) => {
+        if (method === "resolve_error") {
+          throw new Error("invalid params");
+        }
+        return [{ error_code: 12 }];
+      }
+    );
+    await expect(api.resolveError("d1")).rejects.toThrow("invalid params");
+  });
+});

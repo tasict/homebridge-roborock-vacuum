@@ -673,13 +673,85 @@ function renderDiscoveredDevices(devices) {
       sceneToggle.style.display = select.value === "matter" ? "" : "none";
     });
 
-    row.append(label, select, sceneToggle);
+    // Filled by renderDeviceErrors when the device reports an error.
+    const errorBox = document.createElement("div");
+    errorBox.className = "device-error";
+    errorBox.hidden = true;
+
+    row.append(label, select, sceneToggle, errorBox);
     elements.discoveredDevices.appendChild(row);
   });
 
   renderPairingPanels().catch(() => {
     // Pairing info is best-effort; the device list stays usable without it.
   });
+  renderDeviceErrors().catch(() => {
+    // Best-effort; the device list stays usable without it.
+  });
+}
+
+/**
+ * Show each device's current robot/dock error (as published by the running
+ * plugin) with a button that resolves it, like "Resolved" in the Roborock
+ * app. Devices without an error show nothing.
+ */
+async function renderDeviceErrors() {
+  const result = await request("/devices/errors");
+  const errors = new Map(
+    ((result && result.ok && result.devices) || []).map((device) => [
+      device.duid,
+      device,
+    ])
+  );
+
+  elements.discoveredDevices.querySelectorAll(".device-row").forEach((row) => {
+    const box = row.querySelector(".device-error");
+    if (!box) {
+      return;
+    }
+    box.textContent = "";
+    const device = errors.get(row.dataset.duid);
+    box.hidden = !device;
+    if (!device) {
+      return;
+    }
+
+    const lines = [];
+    if (device.dockErrorCode) {
+      lines.push(
+        `Dock error ${device.dockErrorCode}: ${device.dockErrorLabel}`
+      );
+    }
+    if (device.errorCode) {
+      lines.push(`Error ${device.errorCode}: ${device.errorLabel}`);
+    }
+    const text = document.createElement("span");
+    text.className = "text-danger";
+    text.textContent = lines.join(" · ");
+
+    const button = document.createElement("button");
+    button.className = "btn btn-sm btn-outline-danger";
+    button.textContent = "Clear error";
+    button.addEventListener("click", () => resolveDeviceError(device, button));
+
+    box.append(text, button);
+  });
+}
+
+async function resolveDeviceError(device, button) {
+  button.disabled = true;
+  try {
+    const result = await request("/devices/resolve-error", {
+      duid: device.duid,
+    });
+    showToast(
+      result.ok ? "success" : "error",
+      result.message || (result.ok ? "Error resolved." : "Failed.")
+    );
+    await renderDeviceErrors();
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function loadDevices(forceRefresh) {

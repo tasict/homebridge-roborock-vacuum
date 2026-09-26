@@ -9,6 +9,7 @@ import type { API, Logger, MatterRequests } from "homebridge";
 import { MatterStatus } from "homebridge";
 import { BaseMatterAccessory } from "./base_matter_accessory";
 import { RoborockApi } from "./roborock_api";
+import { ROBOROCK_ERROR_LABELS } from "./error_codes";
 
 function getMatterAPI(api: API): NonNullable<API["matter"]> {
   const matter = api.matter;
@@ -168,34 +169,6 @@ const ROBOROCK_ERROR_TO_MATTER_ERROR: Record<number, number> = {
   19: MATTER_ERROR_FAILED_TO_FIND_DOCK, // Unpowered charging station
   23: MATTER_ERROR_FAILED_TO_FIND_DOCK, // Dock problem
   254: MATTER_ERROR_DUST_BIN_FULL, // Bin full
-};
-
-const ROBOROCK_ERROR_LABELS: Record<number, string> = {
-  1: "Laser sensor fault",
-  2: "Collision sensor fault",
-  3: "Wheel floating",
-  4: "Cliff sensor fault",
-  5: "Main brush blocked",
-  6: "Side brush blocked",
-  7: "Wheel blocked",
-  8: "Device stuck",
-  9: "Dust bin missing",
-  10: "Filter blocked",
-  11: "Magnetic field detected",
-  12: "Low battery",
-  13: "Charging problem",
-  14: "Battery failure",
-  15: "Wall sensor fault",
-  16: "Uneven surface",
-  17: "Side brush failure",
-  18: "Suction fan failure",
-  19: "Unpowered charging station",
-  21: "Laser pressure sensor problem",
-  22: "Charge sensor problem",
-  23: "Dock problem",
-  24: "No-go zone or invisible wall detected",
-  254: "Bin full",
-  255: "Internal error",
 };
 
 function buildSupportedCleanModes(capabilities: CleanModeCapabilities) {

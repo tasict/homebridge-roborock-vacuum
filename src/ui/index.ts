@@ -2,6 +2,21 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import { encryptSession, decryptSession } from "../crypto";
+import {
+  DEVICE_ERRORS_FILE,
+  RESOLVE_REQUEST_DIR,
+  DeviceErrorsFile,
+  ResolveRequest,
+  ResolveResult,
+  readJson,
+  requestFilePath,
+  resultFilePath,
+  writeJsonAtomic,
+} from "../device_error_bridge";
+import {
+  ROBOROCK_DOCK_ERROR_LABELS,
+  ROBOROCK_ERROR_LABELS,
+} from "../error_codes";
 
 const roborockAuth = require("../../roborockLib/lib/roborockAuth");
 const roborockHome = require("../../roborockLib/lib/roborockHome");
@@ -74,6 +89,14 @@ class RoborockUiServer {
     this.homebridgePluginUiServer.onRequest(
       "/devices/list",
       this.listDevices.bind(this)
+    );
+    this.homebridgePluginUiServer.onRequest(
+      "/devices/errors",
+      this.getDeviceErrors.bind(this)
+    );
+    this.homebridgePluginUiServer.onRequest(
+      "/devices/resolve-error",
+      this.resolveDeviceError.bind(this)
     );
     this.homebridgePluginUiServer.onRequest(
       "/matter/status",
@@ -494,6 +517,96 @@ class RoborockUiServer {
         message: error?.message || "Failed to load devices.",
       };
     }
+  }
+
+  /**
+   * Current device errors as published by the running plugin (see
+   * device_error_bridge.ts), with readable labels. Only devices that report
+   * an error are returned.
+   */
+  private async getDeviceErrors() {
+    const file = readJson(
+      path.join(this.getStoragePath(), DEVICE_ERRORS_FILE)
+    ) as DeviceErrorsFile | null;
+    if (!file || !Array.isArray(file.devices)) {
+      return { ok: true, devices: [] };
+    }
+
+    const devices = file.devices
+      .filter((device) => device.errorCode || device.dockErrorCode)
+      .map((device) => ({
+        duid: device.duid,
+        name: device.name,
+        errorCode: device.errorCode,
+        errorLabel: device.errorCode
+          ? ROBOROCK_ERROR_LABELS[device.errorCode] || "Unknown error"
+          : null,
+        dockErrorCode: device.dockErrorCode,
+        dockErrorLabel: device.dockErrorCode
+          ? ROBOROCK_DOCK_ERROR_LABELS[device.dockErrorCode] ||
+            "Unknown dock error"
+          : null,
+      }));
+    return { ok: true, devices, updatedAt: file.updatedAt };
+  }
+
+  /**
+   * Ask the running plugin to resolve a device's error (like "Resolved" in
+   * the Roborock app) and wait for its answer.
+   */
+  private async resolveDeviceError(payload: { duid?: string }) {
+    if (!payload.duid || typeof payload.duid !== "string") {
+      return { ok: false, message: "Missing device id." };
+    }
+
+    const storagePath = this.getStoragePath();
+    const id = crypto.randomUUID();
+    const request: ResolveRequest = {
+      id,
+      duid: payload.duid,
+      requestedAt: Date.now(),
+    };
+    try {
+      fs.mkdirSync(path.join(storagePath, RESOLVE_REQUEST_DIR), {
+        recursive: true,
+      });
+      writeJsonAtomic(requestFilePath(storagePath, id), request);
+    } catch (error: any) {
+      return {
+        ok: false,
+        message: `Could not send the request: ${error?.message || error}`,
+      };
+    }
+
+    // The plugin checks for requests every 2 s; resolving then takes a
+    // device round-trip or two. Stay inside the page's 15 s request budget.
+    const deadline = Date.now() + 12000;
+    const resultPath = resultFilePath(storagePath, id);
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const result = readJson(resultPath) as ResolveResult | null;
+      if (result) {
+        try {
+          fs.unlinkSync(resultPath);
+        } catch (error) {
+          // The plugin removes stale results as well.
+        }
+        return { ok: result.ok, message: result.message };
+      }
+    }
+
+    // Withdraw the request so a late pickup does not act on it.
+    try {
+      fs.unlinkSync(requestFilePath(storagePath, id));
+    } catch (error) {
+      // Already picked up; the plugin drops the unread result later.
+    }
+    return {
+      ok: false,
+      message:
+        "The plugin did not answer in time. Make sure Homebridge is " +
+        "running with this version of the plugin, then check the error again.",
+    };
   }
 
   /**

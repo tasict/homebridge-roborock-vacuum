@@ -86,5 +86,6 @@ export interface RoborockApi {
     parameters: { fan_power?: number; water_box_mode?: number }
   ): Promise<void>;
   findMe(duid: string): Promise<void>;
+  resolveError(duid: string, errorCode?: number): Promise<boolean>;
   executeScene(sceneID: { val: string | number }): Promise<void>;
 }

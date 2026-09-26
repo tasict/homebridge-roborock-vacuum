@@ -24,6 +24,7 @@ This plugin is inspired by and adapted from the [ioBroker.roborock](https://gith
 - **Roborock scenes as switches** — every enabled scene from the Roborock app that uses the vacuum can be run from Apple Home.
 - **Dock mop-wash switch** on docks that wash the mop. See [Dock mop-wash switch](#dock-mop-wash-switch).
 - **Consumables** (HomeKit) — remaining life of the filter, main brush and side brush, with a change reminder at 5% or less.
+- **Clear errors from the settings page** — an error the vacuum or dock keeps reporting after you fixed the cause can be cleared without the Roborock app. See [Clearing device errors](#clearing-device-errors).
 - **Matter (Beta)** — publish a vacuum as a native Matter robot vacuum, with room cleaning and clean modes. See [Matter support (Beta)](#matter-support-beta).
 - **Works through cloud outages** — local control over the LAN, and a local-only start when the Roborock cloud is unreachable. See [Cloud outages and local-only mode](#cloud-outages-and-local-only-mode).
 - **Current room → MQTT** (optional) — publish the room being cleaned to your MQTT broker. See [Current Room → MQTT](#current-room--mqtt-optional-telemetry).
@@ -158,6 +159,14 @@ On vacuums whose dock can wash the mop (G10, S7 Pro/MaxV Ultra, S7 Max Ultra, S8
 The switch is **stateful**: it turns on whenever the dock is washing the mop — including washes started from the Roborock app or mid-clean wash cycles — and turning it off stops the wash. Devices without a washing dock don't get the switch.
 
 The switch's default name comes from the plugin's translation catalog in the language selected by the **Language** option on the settings page (`"language"` in `config.json`; default `en`, 12 languages including `zh-cn` and `zh-tw`). Changing the language only renames accessories on the next restart — accessory identities never change, so **no re-pairing and no room re-selection is needed**. You can also rename the switch freely in your home app.
+
+## Clearing device errors
+
+Some errors stay on the vacuum until they are marked as resolved in the Roborock app, even after the cause is fixed. A typical one is the dock's "clean water tank empty" after you have refilled the tank. While such an error is latched, Apple Home keeps showing the fault.
+
+When a vacuum reports an error, the plugin's settings page shows it next to the vacuum in the device list, with the error code and a short description. Press **Clear error** to resolve it, like tapping **Resolved** in the Roborock app. A dock error is cleared first; press the button again if the vacuum then still reports an error of its own.
+
+The settings page asks the running plugin to send the command, so Homebridge must be running. Fix the cause before clearing the error; an error whose cause is still there comes back.
 
 ## Current Room → MQTT (optional telemetry)
 
