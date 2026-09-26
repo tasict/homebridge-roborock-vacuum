@@ -31,7 +31,7 @@ const ROBOROCK_STATE_TO_OPERATIONAL_STATE: Record<number, number> = {
   3: 0, // Idle → Stopped
   4: 1, // Remote Control → Running
   5: 1, // Cleaning → Running
-  6: 1, // Returning Dock → Running
+  6: 64, // Returning Dock → Seeking charger
   7: 1, // Manual Mode → Running
   8: 65, // Charging → Charging (Matter state 65)
   9: 3, // Charging Error → Error
@@ -40,7 +40,7 @@ const ROBOROCK_STATE_TO_OPERATIONAL_STATE: Record<number, number> = {
   12: 3, // In Error → Error
   13: 0, // Shutting Down → Stopped
   14: 0, // Updating → Stopped
-  15: 1, // Docking → Running
+  15: 64, // Docking → Seeking charger
   16: 1, // Go To → Running
   17: 1, // Zone Clean → Running
   18: 1, // Room Clean → Running
@@ -124,6 +124,32 @@ interface SegmentRoom {
   name: string;
 }
 
+// Matter RvcOperationalState OperationalStateEnum values used by handlers.
+const OP_STATE_STOPPED = 0;
+const OP_STATE_PAUSED = 2;
+const OP_STATE_SEEKING_CHARGER = 64;
+const OP_STATE_CHARGING = 65;
+const OP_STATE_DOCKED = 66;
+const OP_STATE_EMPTYING_DUST_BIN = 67;
+const OP_STATE_CLEANING_MOP = 68;
+
+// Matter PowerSource BatChargeStateEnum values.
+const BAT_CHARGE_STATE_IS_CHARGING = 1;
+const BAT_CHARGE_STATE_IS_AT_FULL_CHARGE = 2;
+const BAT_CHARGE_STATE_IS_NOT_CHARGING = 3;
+
+// Roborock states in which the vacuum sits on its charger.
+const ROBOROCK_STATE_CHARGING = 8;
+const ROBOROCK_STATE_FULLY_CHARGED = 100;
+
+// ServiceArea map. Homebridge enables the Maps feature whenever
+// supportedMaps is present, and matter.js requires it to be present. With
+// the feature on but supportedMaps empty (areas on mapId null), Apple Home
+// showed no rooms (#60), so the rooms — get_room_mapping reports the
+// current map's — are published on a single map.
+const SERVICE_AREA_MAP_ID = 1;
+const SERVICE_AREA_MAPS = [{ mapId: SERVICE_AREA_MAP_ID, name: "Map" }];
+
 // Matter RvcOperationalState ErrorStateEnum values.
 const MATTER_ERROR_NO_ERROR = 0;
 const MATTER_ERROR_UNABLE_TO_COMPLETE = 2;
@@ -202,7 +228,7 @@ function buildSupportedCleanModes(capabilities: CleanModeCapabilities) {
 function toMatterArea(room: SegmentRoom) {
   return {
     areaId: room.segmentId,
-    mapId: null,
+    mapId: SERVICE_AREA_MAP_ID,
     areaInfo: {
       locationInfo: {
         locationName: room.name,
@@ -222,7 +248,7 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   private readonly supportedCleanModes: ReturnType<
     typeof buildSupportedCleanModes
   >;
-  private currentOperationalState = 66; // Start docked
+  private currentOperationalState = OP_STATE_DOCKED;
   private currentCleanMode: number;
   private currentRunMode = RUN_MODE_IDLE;
   private currentErrorCode = 0;
@@ -230,6 +256,11 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   private currentBatPercent?: number;
   private currentBatChargeLevel?: number;
   private currentBatChargeState?: number;
+  // Last reported Roborock state, battery and charge_status — the charge
+  // state is derived from all three.
+  private lastState?: number;
+  private lastBattery?: number;
+  private lastChargeStatus?: number;
   private lastFanPower?: number;
   private lastWaterBoxMode?: number;
   // ServiceArea: rooms known to the controller and the current selection.
@@ -326,18 +357,16 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
             { operationalStateId: 67 }, // Emptying dust bin
             { operationalStateId: 68 }, // Cleaning mop
           ],
-          operationalState: 66, // Start docked
+          operationalState: OP_STATE_DOCKED,
         },
 
         // Service Area: named rooms for room-by-room cleaning. Rooms load
         // asynchronously from get_room_mapping, so this often starts empty
         // and is pushed once the cache fills (see updateSupportedAreas).
         serviceArea: {
+          // See SERVICE_AREA_MAPS: one map carrying every room.
+          supportedMaps: SERVICE_AREA_MAPS,
           supportedAreas: initialRooms.map(toMatterArea),
-          // matter.js reads supportedMaps unconditionally during behavior
-          // initialization, so it must be present even though multi-map
-          // support is not exposed (areas carry mapId: null).
-          supportedMaps: [],
           selectedAreas: [],
           currentArea: null,
         },
@@ -398,7 +427,7 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
         await this.roborockAPI.app_stop(this.duid);
         this.segmentCleanActive = false;
       } else if (newMode === RUN_MODE_CLEANING) {
-        if (this.currentOperationalState === 2) {
+        if (this.currentOperationalState === OP_STATE_PAUSED) {
           // Paused — resume instead of restarting from scratch.
           this.logInfo("Change run mode to: Cleaning (resume)");
           await this.resumeCleaning();
@@ -565,8 +594,12 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   private async handlePause(): Promise<void> {
     this.logInfo("Pausing vacuum");
 
-    // Validate current state
-    const invalidStates = [65, 66, 67, 68]; // Charging, Docked, Emptying, Cleaning mop
+    const invalidStates = [
+      OP_STATE_CHARGING,
+      OP_STATE_DOCKED,
+      OP_STATE_EMPTYING_DUST_BIN,
+      OP_STATE_CLEANING_MOP,
+    ];
     if (invalidStates.includes(this.currentOperationalState)) {
       throw new MatterStatus.InvalidInState("Cannot pause in current state");
     }
@@ -580,19 +613,37 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   }
 
   /**
-   * Handle Resume command
+   * Handle Resume command. Controllers may send Resume rather than a
+   * run-mode change for their start button (Apple Home did while the run
+   * mode read Cleaning, #60), so a Resume from a stopped or docked vacuum
+   * starts a clean instead of being refused.
    */
   private async handleResume(): Promise<void> {
-    this.logInfo("Resuming vacuum");
-
-    // Validate current state
-    const invalidStates = [64, 65, 66, 67, 68]; // Seeking, Charging, Docked, Emptying, Cleaning mop
-    if (invalidStates.includes(this.currentOperationalState)) {
+    const state = this.currentOperationalState;
+    if (
+      state === OP_STATE_EMPTYING_DUST_BIN ||
+      state === OP_STATE_CLEANING_MOP
+    ) {
       throw new MatterStatus.InvalidInState("Cannot resume in current state");
     }
 
+    const startStates = [
+      OP_STATE_STOPPED,
+      OP_STATE_SEEKING_CHARGER,
+      OP_STATE_CHARGING,
+      OP_STATE_DOCKED,
+    ];
+
     try {
-      await this.resumeCleaning();
+      if (startStates.includes(state)) {
+        this.logInfo(
+          "Resume requested with no clean in progress; starting one"
+        );
+        await this.startCleaning();
+      } else {
+        this.logInfo("Resuming vacuum");
+        await this.resumeCleaning();
+      }
     } catch (error) {
       this.logError("Failed to resume:", error);
       throw new MatterStatus.Failure("Failed to resume vacuum");
@@ -634,7 +685,9 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
    * leftover selection from the previous session) is reset.
    */
   public refreshServiceArea(): void {
+    // supportedMaps goes first: the areas' mapId must resolve against it.
     this.updateState("serviceArea", {
+      supportedMaps: SERVICE_AREA_MAPS,
       supportedAreas: this.rooms.map(toMatterArea),
       selectedAreas: this.selectedSegments,
       currentArea: this.currentAreaId,
@@ -700,6 +753,7 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
         this.rooms.map((room) => room.name).join(", ")
     );
     this.updateState("serviceArea", {
+      supportedMaps: SERVICE_AREA_MAPS,
       supportedAreas: this.rooms.map(toMatterArea),
       selectedAreas: this.selectedSegments,
     }).catch((err) => this.logError("Failed to update supported areas:", err));
@@ -760,14 +814,24 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
       }
 
       // Update charging state
-      if (data.charge_status !== undefined) {
-        const batChargeState = data.charge_status === 0 ? 2 : 1; // 2 = NOT_CHARGING, 1 = CHARGING
-        if (force || batChargeState !== this.currentBatChargeState) {
-          this.currentBatChargeState = batChargeState;
-          this.updateState("powerSource", { batChargeState }).catch((err) =>
-            this.logError("Failed to update charge state:", err)
-          );
-        }
+      if (typeof data.state === "number") {
+        this.lastState = data.state;
+      }
+      if (typeof data.battery === "number") {
+        this.lastBattery = data.battery;
+      }
+      if (typeof data.charge_status === "number") {
+        this.lastChargeStatus = data.charge_status;
+      }
+      const batChargeState = this.deriveBatChargeState();
+      if (
+        batChargeState !== undefined &&
+        (force || batChargeState !== this.currentBatChargeState)
+      ) {
+        this.currentBatChargeState = batChargeState;
+        this.updateState("powerSource", { batChargeState }).catch((err) =>
+          this.logError("Failed to update charge state:", err)
+        );
       }
 
       // Update clean mode from the motor settings.
@@ -813,7 +877,10 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
         }
 
         // A clean that ended clears the segment-clean resume flag.
-        if (runMode === RUN_MODE_IDLE && this.currentOperationalState !== 2) {
+        if (
+          runMode === RUN_MODE_IDLE &&
+          this.currentOperationalState !== OP_STATE_PAUSED
+        ) {
           this.segmentCleanActive = false;
         }
       }
@@ -825,6 +892,32 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
     } catch (error) {
       this.logError("Error updating from Roborock data:", error);
     }
+  }
+
+  /**
+   * Matter charge state from charge_status, or — on models whose status
+   * lacks it — from the charger states. Undefined until either is known.
+   */
+  private deriveBatChargeState(): number | undefined {
+    const onCharger =
+      this.lastState === ROBOROCK_STATE_CHARGING ||
+      this.lastState === ROBOROCK_STATE_FULLY_CHARGED;
+    let charging: boolean;
+    if (this.lastChargeStatus !== undefined) {
+      charging = this.lastChargeStatus !== 0;
+    } else if (this.lastState !== undefined) {
+      charging = onCharger;
+    } else {
+      return undefined;
+    }
+
+    if (!charging) {
+      return BAT_CHARGE_STATE_IS_NOT_CHARGING;
+    }
+    return this.lastState === ROBOROCK_STATE_FULLY_CHARGED ||
+      this.lastBattery === 100
+      ? BAT_CHARGE_STATE_IS_AT_FULL_CHARGE
+      : BAT_CHARGE_STATE_IS_CHARGING;
   }
 
   private updateOperationalError(errorCode: number, force = false): void {

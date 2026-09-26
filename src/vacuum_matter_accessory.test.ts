@@ -127,6 +127,15 @@ describe("RoborockVacuumMatterAccessory", () => {
       expect(areas[0].areaInfo.locationInfo.locationName).toBe("Kitchen");
     });
 
+    it("publishes the rooms on a single supported map", () => {
+      const { accessory } = makeAccessory();
+      const serviceArea = (accessory.clusters as any).serviceArea;
+      expect(serviceArea.supportedMaps).toEqual([{ mapId: 1, name: "Map" }]);
+      expect(serviceArea.supportedAreas.every((a: any) => a.mapId === 1)).toBe(
+        true
+      );
+    });
+
     it("starts with an empty area list when rooms are not cached yet", () => {
       const { accessory } = makeAccessory({
         getSegmentRooms: jest.fn().mockReturnValue([]),
@@ -140,6 +149,7 @@ describe("RoborockVacuumMatterAccessory", () => {
   describe("operational state mapping", () => {
     it.each([
       [5, 1], // Cleaning → Running
+      [6, 64], // Returning to dock → Seeking charger
       [8, 65], // Charging → Charging
       [10, 2], // Paused → Paused
       [12, 3], // Error → Error
@@ -180,6 +190,21 @@ describe("RoborockVacuumMatterAccessory", () => {
       expect(
         clusterUpdates(updateAccessoryState, "powerSource")
       ).toContainEqual({ batPercentRemaining: 30, batChargeLevel: 2 });
+    });
+
+    it.each([
+      [{ charge_status: 0, state: 5, battery: 80 }, 3], // Not charging
+      [{ charge_status: 1, state: 8, battery: 80 }, 1], // Charging
+      [{ charge_status: 1, state: 8, battery: 100 }, 2], // Full
+      [{ state: 8, battery: 80 }, 1], // No charge_status: charging state
+      [{ state: 100 }, 2], // No charge_status: fully charged state
+      [{ state: 3, battery: 80 }, 3], // No charge_status: off the charger
+    ])("derives the charge state from %j as %i", (data, expected) => {
+      const { accessory, updateAccessoryState } = makeAccessory();
+      accessory.updateFromRoborockData(data);
+      expect(
+        clusterUpdates(updateAccessoryState, "powerSource")
+      ).toContainEqual({ batChargeState: expected });
     });
 
     it("clamps to the 0-200 range", () => {
@@ -299,6 +324,32 @@ describe("RoborockVacuumMatterAccessory", () => {
       expect(roborockAPI.resume_segment_clean).not.toHaveBeenCalled();
     });
 
+    it("starts a clean when Resume arrives while docked", async () => {
+      const { accessory, roborockAPI } = makeAccessory();
+      accessory.updateFromRoborockData({ state: 8 }); // Charging
+      await (accessory.handlers as any).rvcOperationalState.resume();
+      expect(roborockAPI.app_start).toHaveBeenCalledWith(DUID);
+    });
+
+    it("honors the room selection when Resume starts a clean", async () => {
+      const { accessory, roborockAPI } = makeAccessory();
+      await (accessory.handlers as any).serviceArea.selectAreas({
+        newAreas: [17],
+      });
+      await (accessory.handlers as any).rvcOperationalState.resume();
+      expect(roborockAPI.app_segment_clean).toHaveBeenCalledWith(DUID, [17]);
+      expect(roborockAPI.app_start).not.toHaveBeenCalled();
+    });
+
+    it("refuses to resume while the dock is emptying the bin", async () => {
+      const { accessory, roborockAPI } = makeAccessory();
+      accessory.updateFromRoborockData({ state: 22 }); // Emptying dust bin
+      await expect(
+        (accessory.handlers as any).rvcOperationalState.resume()
+      ).rejects.toBeInstanceOf(MatterStatus.InvalidInState);
+      expect(roborockAPI.app_start).not.toHaveBeenCalled();
+    });
+
     it("docks through goHome", async () => {
       const { accessory, roborockAPI } = makeAccessory();
       await (accessory.handlers as any).rvcOperationalState.goHome();
@@ -367,6 +418,9 @@ describe("RoborockVacuumMatterAccessory", () => {
         clusterUpdates(updateAccessoryState, "powerSource")
       ).toContainEqual({ batPercentRemaining: 200, batChargeLevel: 0 });
       expect(
+        clusterUpdates(updateAccessoryState, "powerSource")
+      ).toContainEqual({ batChargeState: 2 });
+      expect(
         clusterUpdates(updateAccessoryState, "rvcCleanMode")
       ).toContainEqual({ currentMode: 2 });
     });
@@ -414,6 +468,14 @@ describe("RoborockVacuumMatterAccessory", () => {
       expect((updates[0].supportedAreas as any[]).map((a) => a.areaId)).toEqual(
         [16, 17, 18]
       );
+    });
+
+    it("republishes the supported map with the areas", () => {
+      const { accessory, updateAccessoryState } = makeAccessory();
+      accessory.refreshServiceArea();
+      const [update] = clusterUpdates(updateAccessoryState, "serviceArea");
+      expect(Object.keys(update)[0]).toBe("supportedMaps");
+      expect(update.supportedMaps).toEqual([{ mapId: 1, name: "Map" }]);
     });
 
     it("does not push an unchanged room list", () => {

@@ -2,7 +2,11 @@
 
 ## 2.2.9
 
+- **Fix (Matter)**: Rooms are now published on a map (#60). They used to be published without one, and Apple Home showed no rooms. Room selection works as before
 - **Fix (status)**: Vacuum status (state, battery, charging, error, fan and water settings) now comes from the vacuum itself. The plugin polls `get_status` on every refresh and keeps the real-time status broadcasts, instead of relying on the cloud's home-data snapshot, which can lag behind the device. This fixes Matter vacuums that kept an old state, such as "Return to dock" staying available while the vacuum was already docked (#60). HAP accessories read the same status
+- **Fix (Matter)**: The charging state is reported correctly. "Not charging" was sent as Matter's "fully charged" value, and models that do not report `charge_status` now derive it from the charging and charged states
+- **Fix (Matter)**: The start button no longer fails with `Cannot resume in current state` (#60). A Resume command sent while the vacuum is stopped or docked now starts a clean, and honors the room selection
+- **Change (Matter)**: A vacuum that is returning to or docking at its station now reports "Seeking charger" instead of "Running"
 
 ## 2.2.8
 
