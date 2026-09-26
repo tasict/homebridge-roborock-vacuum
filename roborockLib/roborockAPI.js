@@ -133,6 +133,18 @@ class Roborock {
     this.localFailoverThreshold = 3; // consecutive local timeouts before preferring cloud
     this.localFailoverInterval = 5 * 60 * 1000; // 5 min preferring cloud before retrying local
 
+    // The cloud MQTT session can stay connected while delivering nothing
+    // (python-roborock's HealthManager restarts it for the same reason).
+    // Consecutive cloud request timeouts with no MQTT traffic at all in
+    // between restart the session; see recordCloudTimeout for what does not
+    // count. Restarts back off exponentially until traffic resumes.
+    this.cloudTimeoutStreak = 0;
+    this.cloudRestartThreshold = 3; // silent cloud timeouts before a restart
+    this.cloudRestartBaseCooldown = 30 * 60 * 1000; // 30 min after the first restart
+    this.cloudRestartMaxCooldown = 6 * 60 * 60 * 1000; // backoff cap
+    this.cloudRestartCount = 0; // restarts since MQTT traffic was last seen
+    this.lastCloudRestart = null;
+
     // Live status reported by the device itself (get_status polls and status
     // broadcasts), keyed by duid, then by get_status field name:
     // { value, at }. getVacuumDeviceStatus prefers it over the HomeData
@@ -2074,6 +2086,62 @@ class Roborock {
     } else {
       this.localTimeoutStreak.set(duid, streak);
     }
+  }
+
+  // Called by the message queue when a CLOUD request times out. Only a
+  // session that claims to be connected yet delivers nothing is restarted:
+  // - while MQTT reports itself disconnected (network down, broker gone) the
+  //   mqtt client's own reconnect loop is already at work;
+  // - while the Roborock cloud API is unreachable the outage is server-side
+  //   and a new session would not help;
+  // - any MQTT message (see noteCloudMessage) resets the streak, so requests
+  //   one device leaves unanswered never restart a session that works.
+  recordCloudTimeout() {
+    if (!this.rr_mqtt_connector.isConnected() || this.cloudUnreachable) {
+      return;
+    }
+
+    this.cloudTimeoutStreak++;
+    if (this.cloudTimeoutStreak < this.cloudRestartThreshold) {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      this.lastCloudRestart !== null &&
+      now - this.lastCloudRestart < this.cloudRestartCooldown()
+    ) {
+      return;
+    }
+
+    this.log.info(
+      `Cloud MQTT session delivered nothing for ${this.cloudTimeoutStreak} consecutive requests; restarting it.`
+    );
+    this.lastCloudRestart = now;
+    this.cloudRestartCount++;
+    this.cloudTimeoutStreak = 0;
+    this.rr_mqtt_connector.reconnectClient();
+  }
+
+  // Minimum time since the last restart before the next one: 30 min, doubled
+  // for every further restart that did not bring traffic back, up to 6 h.
+  cloudRestartCooldown() {
+    const exponent = Math.max(0, this.cloudRestartCount - 1);
+    return Math.min(
+      this.cloudRestartBaseCooldown * 2 ** exponent,
+      this.cloudRestartMaxCooldown
+    );
+  }
+
+  // Called for every MQTT message received: the session is delivering.
+  noteCloudMessage() {
+    this.cloudTimeoutStreak = 0;
+    this.cloudRestartCount = 0;
+  }
+
+  // Called by the message queue when a CLOUD request succeeds.
+  recordCloudSuccess() {
+    this.noteCloudMessage();
   }
 
   // Called by the message queue when a LOCAL request succeeds. Clears any local

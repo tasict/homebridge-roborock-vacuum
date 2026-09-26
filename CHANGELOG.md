@@ -8,6 +8,7 @@
 - **Fix (Matter)**: The start button no longer fails with `Cannot resume in current state` (#60). A Resume command sent while the vacuum is stopped or docked now starts a clean, and honors the room selection
 - **Change (Matter)**: A vacuum that is returning to or docking at its station now reports "Seeking charger" instead of "Running"
 - **Fix (login)**: Signing in no longer fails with code 3006 ("user agreement version is not up-to-date"). The login sent a fixed user agreement version, but the current version differs per Roborock server and country; it is now fetched before each login, with the old value as the fallback
+- **Fix (connectivity)**: A cloud connection that stays connected but no longer delivers any messages is restarted. This only happens when the connection reports itself as connected, the Roborock cloud is reachable, and several requests in a row got no answer with no other message in between; restarts back off from 30 minutes up to 6 hours while they do not help. A network or Roborock outage does not trigger restarts
 
 ## 2.2.8
 

@@ -201,6 +201,10 @@ class roborock_mqtt_connector {
           return;
         }
 
+        if (typeof this.adapter.noteCloudMessage === "function") {
+          this.adapter.noteCloudMessage();
+        }
+
         const data = this.adapter.message._decodeMsg(message, duid);
         if (!data) {
           return;

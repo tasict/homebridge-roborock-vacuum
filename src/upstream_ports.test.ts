@@ -417,3 +417,81 @@ describe("roborockAuth user agreement version", () => {
     expect(params.get("minorVersion")).toBe("0");
   });
 });
+
+describe("cloud MQTT session health", () => {
+  function createHealthApi() {
+    const api = createApi();
+    api.rr_mqtt_connector = {
+      isConnected: jest.fn(() => true),
+      reconnectClient: jest.fn(),
+    };
+    return api;
+  }
+
+  function timeouts(api: any, count: number) {
+    for (let i = 0; i < count; i++) {
+      api.recordCloudTimeout();
+    }
+  }
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it("restarts a connected session that delivers nothing", () => {
+    const api = createHealthApi();
+    timeouts(api, 2);
+    expect(api.rr_mqtt_connector.reconnectClient).not.toHaveBeenCalled();
+
+    api.recordCloudTimeout();
+    expect(api.rr_mqtt_connector.reconnectClient).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores timeouts while MQTT reports itself disconnected", () => {
+    const api = createHealthApi();
+    api.rr_mqtt_connector.isConnected.mockReturnValue(false);
+    timeouts(api, 5);
+    expect(api.rr_mqtt_connector.reconnectClient).not.toHaveBeenCalled();
+  });
+
+  it("ignores timeouts while the cloud API is unreachable", () => {
+    const api = createHealthApi();
+    api.cloudUnreachable = true;
+    timeouts(api, 5);
+    expect(api.rr_mqtt_connector.reconnectClient).not.toHaveBeenCalled();
+  });
+
+  it("keeps a session that still delivers messages", () => {
+    const api = createHealthApi();
+    timeouts(api, 2);
+    api.noteCloudMessage();
+    timeouts(api, 2);
+    expect(api.rr_mqtt_connector.reconnectClient).not.toHaveBeenCalled();
+  });
+
+  it("backs off exponentially while restarts do not help", () => {
+    jest.useFakeTimers();
+    const api = createHealthApi();
+    const minute = 60 * 1000;
+
+    timeouts(api, 3); // first restart
+    jest.advanceTimersByTime(30 * minute);
+    timeouts(api, 3); // second restart after the 30 min cooldown
+    expect(api.rr_mqtt_connector.reconnectClient).toHaveBeenCalledTimes(2);
+
+    jest.advanceTimersByTime(30 * minute);
+    timeouts(api, 3); // now 60 min are required
+    expect(api.rr_mqtt_connector.reconnectClient).toHaveBeenCalledTimes(2);
+
+    jest.advanceTimersByTime(30 * minute);
+    timeouts(api, 3);
+    expect(api.rr_mqtt_connector.reconnectClient).toHaveBeenCalledTimes(3);
+  });
+
+  it("resets the backoff once messages arrive again", () => {
+    const api = createHealthApi();
+    api.cloudRestartCount = 5;
+    api.noteCloudMessage();
+    expect(api.cloudRestartCooldown()).toBe(30 * 60 * 1000);
+  });
+});

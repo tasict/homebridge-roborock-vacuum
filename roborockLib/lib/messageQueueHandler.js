@@ -70,6 +70,9 @@ class messageQueueHandler {
 							this.adapter.recordMethodTimeout(duid, method);
 						}
 						if (useCloudConnection) {
+							if (typeof this.adapter.recordCloudTimeout === "function") {
+								this.adapter.recordCloudTimeout();
+							}
 							reject(new Error(`Cloud request with id ${messageID} with method ${method} timed out after 10 seconds. MQTT connection state: ${mqttConnectionState}`));
 						} else {
 							if (typeof this.adapter.recordLocalTimeout === "function") {
@@ -86,6 +89,9 @@ class messageQueueHandler {
 						}
 						if (!useCloudConnection && typeof this.adapter.recordLocalSuccess === "function") {
 							this.adapter.recordLocalSuccess(duid);
+						}
+						if (useCloudConnection && typeof this.adapter.recordCloudSuccess === "function") {
+							this.adapter.recordCloudSuccess();
 						}
 						resolve(value);
 					};
