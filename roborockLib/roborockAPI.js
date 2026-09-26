@@ -1006,6 +1006,7 @@ class Roborock {
       const loginResult = await roborockAuth.loginByPassword(loginApi, {
         email: this.config.username,
         password: this.config.password,
+        country: this.getLoginRegion().country,
         k: signData.k,
         s: signData.s,
       });
@@ -1101,6 +1102,20 @@ class Roborock {
     return { ok: true };
   }
 
+  // Country and country code sent with a login. The discovered region carries
+  // the account's real ones; the host-based mapping is only a guess (e.g.
+  // every euiot account maps to DE/49) and stays as the fallback.
+  getLoginRegion() {
+    const guess = roborockAuth.getRegionConfig(this.baseURL);
+    return {
+      country:
+        (this.accountRegion && this.accountRegion.country) || guess.country,
+      countryCode:
+        (this.accountRegion && this.accountRegion.countryCode) ||
+        guess.countryCode,
+    };
+  }
+
   async verifyTwoFactorCode(code) {
     if (!this.loginApi) {
       throw new Error("Login API is not initialized.");
@@ -1111,17 +1126,7 @@ class Roborock {
       throw new Error("Missing login signature.");
     }
 
-    // The discovered region carries the account's real country/countryCode;
-    // the host-based mapping is only a guess (e.g. every euiot account maps
-    // to DE/49) and stays as the fallback.
-    const guess = roborockAuth.getRegionConfig(this.baseURL);
-    const region = {
-      country:
-        (this.accountRegion && this.accountRegion.country) || guess.country,
-      countryCode:
-        (this.accountRegion && this.accountRegion.countryCode) ||
-        guess.countryCode,
-    };
+    const region = this.getLoginRegion();
     const loginResult = await roborockAuth.loginWithCode(this.loginApi, {
       email: this.config.username,
       code,

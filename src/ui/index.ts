@@ -389,6 +389,7 @@ class RoborockUiServer {
       loginResult = await roborockAuth.loginByPassword(loginApi, {
         email,
         password,
+        country: region.country,
         k: signData.k,
         s: nonce,
       });

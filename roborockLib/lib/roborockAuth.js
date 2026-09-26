@@ -8,6 +8,11 @@ const API_V4_LOGIN_CODE = "api/v4/auth/email/login/code";
 const API_V4_LOGIN_PASSWORD = "api/v4/auth/email/login/pwd";
 const API_V4_EMAIL_CODE = "api/v4/email/code/send";
 const API_V1_GET_URL_BY_EMAIL = "api/v1/getUrlByEmail";
+const API_V3_AGREEMENT_LATEST = "api/v3/app/agreement/latest";
+
+// User agreement version sent with a login when the latest one cannot be
+// fetched (the value that used to be hardcoded).
+const DEFAULT_AGREEMENT_VERSION = { majorVersion: 14, minorVersion: 0 };
 
 // Hosts probed for account-region discovery. Any of them answers
 // getUrlByEmail with the account's true regional endpoint; the list only
@@ -175,6 +180,48 @@ async function requestEmailCode(loginApi, email) {
   }
 }
 
+/**
+ * Latest user agreement version for a country. The login endpoint rejects a
+ * stale version with code 3006 ("user agreement version is not up-to-date"),
+ * and the current version differs per server and country, so it is looked up
+ * instead of hardcoded. Falls back to DEFAULT_AGREEMENT_VERSION so a failed
+ * lookup never blocks a login. Mirrors python-roborock.
+ */
+async function getAgreementVersion(loginApi, country) {
+  try {
+    const res = await loginApi.get(API_V3_AGREEMENT_LATEST, {
+      params: { country },
+      headers: { header_clientlang: "en" },
+    });
+    const body = res && res.data;
+    const data = body && body.code === 200 ? body.data : null;
+    if (
+      data &&
+      Number.isInteger(data.majorVersion) &&
+      Number.isInteger(data.minorVersion)
+    ) {
+      return {
+        majorVersion: data.majorVersion,
+        minorVersion: data.minorVersion,
+      };
+    }
+  } catch (error) {
+    // Fall through to the default version.
+  }
+  return { ...DEFAULT_AGREEMENT_VERSION };
+}
+
+async function agreementParams(loginApi, country) {
+  const { majorVersion, minorVersion } = await getAgreementVersion(
+    loginApi,
+    country
+  );
+  return {
+    majorVersion: String(majorVersion),
+    minorVersion: String(minorVersion),
+  };
+}
+
 async function loginWithCode(
   loginApi,
   { email, code, country, countryCode, k, s }
@@ -189,8 +236,7 @@ async function loginWithCode(
     countryCode,
     email,
     code,
-    majorVersion: "14",
-    minorVersion: "0",
+    ...(await agreementParams(loginApi, country)),
   });
 
   try {
@@ -206,7 +252,7 @@ async function loginWithCode(
   }
 }
 
-async function loginByPassword(loginApi, { email, password, k, s }) {
+async function loginByPassword(loginApi, { email, password, country, k, s }) {
   const headers = {
     "x-mercy-k": k,
     "x-mercy-ks": s,
@@ -215,8 +261,7 @@ async function loginByPassword(loginApi, { email, password, k, s }) {
   const params = new URLSearchParams({
     email,
     password: encryptPassword(password, k),
-    majorVersion: "14",
-    minorVersion: "0",
+    ...(await agreementParams(loginApi, country)),
   });
 
   try {
@@ -235,6 +280,7 @@ async function loginByPassword(loginApi, { email, password, k, s }) {
 module.exports = {
   createLoginApi,
   discoverAccountRegion,
+  getAgreementVersion,
   getRegionConfig,
   normalizeBaseURL,
   signRequest,

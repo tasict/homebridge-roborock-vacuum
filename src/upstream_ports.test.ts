@@ -336,3 +336,84 @@ describe("vacuum.getParameter network info", () => {
     );
   });
 });
+
+describe("roborockAuth user agreement version", () => {
+  const roborockAuth = require("../roborockLib/lib/roborockAuth");
+
+  function createLoginApi(agreement: unknown) {
+    return {
+      get:
+        agreement instanceof Error
+          ? jest.fn().mockRejectedValue(agreement)
+          : jest.fn().mockResolvedValue({ data: agreement }),
+      post: jest.fn().mockResolvedValue({ data: { code: 200, data: {} } }),
+    };
+  }
+
+  function postedParams(loginApi: { post: jest.Mock }) {
+    return new URLSearchParams(loginApi.post.mock.calls[0][1]);
+  }
+
+  it("sends the latest agreement version with a code login", async () => {
+    const loginApi = createLoginApi({
+      code: 200,
+      data: { majorVersion: 16, minorVersion: 1 },
+    });
+
+    await roborockAuth.loginWithCode(loginApi, {
+      email: "a@b.c",
+      code: "123456",
+      country: "US",
+      countryCode: "1",
+      k: "k",
+      s: "s",
+    });
+
+    expect(loginApi.get).toHaveBeenCalledWith("api/v3/app/agreement/latest", {
+      params: { country: "US" },
+      headers: { header_clientlang: "en" },
+    });
+    const params = postedParams(loginApi);
+    expect(params.get("majorVersion")).toBe("16");
+    expect(params.get("minorVersion")).toBe("1");
+  });
+
+  it("sends the latest agreement version with a password login", async () => {
+    const loginApi = createLoginApi({
+      code: 200,
+      data: { majorVersion: 15, minorVersion: 0 },
+    });
+
+    await roborockAuth.loginByPassword(loginApi, {
+      email: "a@b.c",
+      password: "pw",
+      country: "DE",
+      k: "0123456789abcdef",
+      s: "s",
+    });
+
+    expect(loginApi.get.mock.calls[0][1].params).toEqual({ country: "DE" });
+    expect(postedParams(loginApi).get("majorVersion")).toBe("15");
+  });
+
+  it.each([
+    ["the lookup fails", new Error("boom")],
+    ["the answer is not a success", { code: 500, data: null }],
+    ["the version is malformed", { code: 200, data: { majorVersion: "x" } }],
+  ])("falls back to 14.0 when %s", async (_case, agreement) => {
+    const loginApi = createLoginApi(agreement);
+
+    await roborockAuth.loginWithCode(loginApi, {
+      email: "a@b.c",
+      code: "123456",
+      country: "US",
+      countryCode: "1",
+      k: "k",
+      s: "s",
+    });
+
+    const params = postedParams(loginApi);
+    expect(params.get("majorVersion")).toBe("14");
+    expect(params.get("minorVersion")).toBe("0");
+  });
+});

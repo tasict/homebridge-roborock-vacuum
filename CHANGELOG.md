@@ -7,6 +7,7 @@
 - **Fix (Matter)**: The charging state is reported correctly. "Not charging" was sent as Matter's "fully charged" value, and models that do not report `charge_status` now derive it from the charging and charged states
 - **Fix (Matter)**: The start button no longer fails with `Cannot resume in current state` (#60). A Resume command sent while the vacuum is stopped or docked now starts a clean, and honors the room selection
 - **Change (Matter)**: A vacuum that is returning to or docking at its station now reports "Seeking charger" instead of "Running"
+- **Fix (login)**: Signing in no longer fails with code 3006 ("user agreement version is not up-to-date"). The login sent a fixed user agreement version, but the current version differs per Roborock server and country; it is now fetched before each login, with the old value as the fallback
 
 ## 2.2.8
 
