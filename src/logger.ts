@@ -1,4 +1,4 @@
-import { Logger } from 'homebridge';
+import { Logger } from "homebridge";
 
 /**
  * Decorates the Homebridge logger to only log debug messages when debug mode is enabled.
@@ -6,7 +6,7 @@ import { Logger } from 'homebridge';
 export default class RoborockPlatformLogger {
   constructor(
     private readonly logger: Logger,
-    private readonly debugMode: boolean,
+    private readonly debugMode: boolean
   ) {}
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,10 +27,10 @@ export default class RoborockPlatformLogger {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   warn(...messages: any[]) {
-		for (let i = 0; i < messages.length; i++) {
-		  this.logger.warn(messages[i]);
-		}
-	}
+    for (let i = 0; i < messages.length; i++) {
+      this.logger.warn(messages[i]);
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   error(...messages: any[]) {
