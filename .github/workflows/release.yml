@@ -1,0 +1,99 @@
+name: Release
+
+# Cuts a release from master: checks the code, bumps the version (commit
+# "<version>" and tag "v<version>", like `npm version`), publishes to npm
+# with trusted publishing (OIDC, no token) and creates the GitHub release
+# with the version's CHANGELOG.md section.
+#
+# Before running it, commit the "## <version>" section of CHANGELOG.md; the
+# run stops before changing anything when the section is missing.
+#
+# The release is created as a draft and only published once npm publish
+# succeeded. If npm publish fails after the tag was pushed, fix the cause,
+# publish from the tag (git checkout v<version> && npm publish), then
+# publish the draft release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "patch, minor, major, or an exact version such as 2.3.0"
+        required: true
+        default: patch
+
+permissions:
+  contents: write # push the version commit and tag, create the release
+  id-token: write # npm trusted publishing
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+
+      - name: Bump version
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          npm version "$REQUESTED" --no-git-tag-version
+          VERSION=$(node -p 'require("./package.json").version')
+
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag v$VERSION already exists."
+            exit 1
+          fi
+          if npm view "$(node -p 'require("./package.json").name')@$VERSION" version 2>/dev/null | grep -q .; then
+            echo "::error::Version $VERSION is already on npm."
+            exit 1
+          fi
+
+          node scripts/changelog_section.js "$VERSION" > "$RUNNER_TEMP/notes.md"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git commit -am "$VERSION"
+          git tag -a "v$VERSION" -m "$VERSION"
+          git push origin HEAD:master "v$VERSION"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" --draft --verify-tag \
+            --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Publish to npm
+        run: npm publish
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release edit "v$VERSION" --draft=false --latest
