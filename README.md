@@ -34,7 +34,7 @@ This plugin is inspired by and adapted from the [ioBroker.roborock](https://gith
 
 The plugin works with vacuums that are on your **Roborock app** account. These models are known to work:
 
-S4, S4 Max, S5 Max, S6, S6 Pure, S6 MaxV, S7, S7 MaxV (Ultra), S7 Pro Ultra, S7 Max Ultra, S8, S8 Pro Ultra, Q5+, Q5 Pro, Q7, Q7 Max, Q8 Max, Qrevo, Qrevo Pro, Qrevo S, Qrevo Curv, Saros 10, and the models `roborock.vacuum.a95`, `roborock.vacuum.a159` and `roborock.vacuum.ss07`.
+S4, S4 Max, S5 Max, S6, S6 Pure, S6 MaxV, S7, S7 MaxV (Ultra), S7 Pro Ultra, S7 Max Ultra, S8, S8 Pro Ultra, S8 MaxV Ultra, Q5+, Q5 Pro, Q7, Q7 Max, Q8 Max, Qrevo, Qrevo Pro, Qrevo S, Qrevo Curv, Saros 10, and the models `roborock.vacuum.a95`, `roborock.vacuum.a159` and `roborock.vacuum.ss07`.
 
 Most other vacuums in the Roborock app work as well; which extras (dock mop wash, consumables, clean modes) appear depends on what the model reports. A vacuum that is set up only in the Xiaomi Home app is not on your Roborock account, so the plugin cannot see it.
 
@@ -148,6 +148,11 @@ mode (cloud unreachable).`). Two caveats: the plugin needs **one successful
 online start** to create the cache, so a brand-new install cannot start offline,
 and a vacuum that is shared from another Roborock account can only be controlled
 through the cloud.
+
+Some firmwares (such as the S8 MaxV Ultra on 02.39.x) speak a different local
+protocol than the one the cloud reports for them. The plugin detects this when
+it connects and logs `reports protocol 1.0 but answers L01 locally`; nothing
+needs to be configured.
 
 ## Dock mop-wash switch
 
