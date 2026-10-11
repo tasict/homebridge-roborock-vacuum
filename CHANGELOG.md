@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.10
+
+- **Fix (connectivity)**: Vacuums whose home data reports protocol `1.0` but that only speak L01 on the LAN, such as the S8 MaxV Ultra (`roborock.vacuum.a97`) on firmware 02.39.x, are controlled locally again (#61). The plugin talked `1.0` to them, the vacuum ignored every local request, and each one timed out after 10 s before falling back to the cloud. Before connecting to a vacuum that reports `1.0`, the plugin now sends it an L01 hello on a separate connection; if the vacuum answers, its local connection uses L01, while cloud requests keep `1.0`. Vacuums that speak `1.0` do not answer, so connecting to them takes up to 3 s longer, and nothing else changes for them. The log shows `reports protocol 1.0 but answers L01 locally` when a vacuum is switched
+- **Fix (connectivity)**: Local L01 connections are no longer dropped after a minute of inactivity (#61). L01 vacuums close a connection that carries no traffic for 60 s, and the plugin reconnected only after another 60 s, so the vacuum spent about half the time without a local connection and commands went through the cloud. The plugin now sends a keepalive ping every 30 s on L01 connections. `1.0` connections stay open by themselves and get no ping
+
 ## 2.2.9
 
 - **Fix (Matter)**: Rooms are now published on a map (#60). They used to be published without one, and Apple Home showed no rooms. Room selection works as before

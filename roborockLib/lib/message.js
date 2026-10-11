@@ -46,7 +46,10 @@ class message {
   ) {
     const timestamp = Math.floor(Date.now() / 1000);
     const endpoint = this.adapter.rr_mqtt_connector.getEndpoint();
-    const version = await this.adapter.getRobotVersion(duid);
+    const version = await this.adapter.getRobotVersion(
+      duid,
+      protocol == 101 ? "cloud" : "local"
+    );
     // this.adapter.log.debug("sendRequest started with: " + requestId);
 
     if (photo) {
@@ -100,21 +103,30 @@ class message {
   }
 
   async buildRoborockMessage(duid, protocol, timestamp, payload, options = {}) {
-    const version = await this.adapter.getRobotVersion(duid);
+    // Protocol 101 is the cloud (MQTT) request; everything else goes over the
+    // local TCP connection, whose protocol version can differ from HomeData's.
+    // options.version overrides both, for probing the local protocol.
+    const version =
+      options.version ||
+      (await this.adapter.getRobotVersion(
+        duid,
+        protocol == 101 ? "cloud" : "local"
+      ));
 
     let encrypted;
 
     const currentSeq = seq & 0xffffffff;
     const currentRandom = random & 0xffffffff;
 
-    // Header-only frames (the L01 HELLO request, protocol 0) carry no encrypted
-    // payload, so they have NO payloadLen field — just version(3) + seq(4) + random(4)
-    // + timestamp(4) + protocol(2) + CRC32(4) = 21 bytes. (The previous build emitted a
+    // Header-only frames (HELLO request/response, protocols 0/1, and PING
+    // request/response, protocols 2/3) carry no encrypted payload, so they have
+    // NO payloadLen field — just version(3) + seq(4) + random(4) + timestamp(4)
+    // + protocol(2) + CRC32(4) = 21 bytes. (The previous build emitted a
     // 23-byte frame with a spurious payloadLen, which L01 robots silently drop, so the
     // handshake never completed.) Optional explicit seq/random let the HELLO pin seq=1
     // and a stable connect_nonce without disturbing the module-global counters used by
     // data messages.
-    if (protocol == 0 || protocol == 1) {
+    if (protocol >= 0 && protocol <= 3) {
       const headerSeq =
         (options.seq !== undefined ? options.seq : currentSeq) >>> 0;
       const headerRandom =

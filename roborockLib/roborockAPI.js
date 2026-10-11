@@ -82,6 +82,10 @@ class Roborock {
 
     this.localKeys = null;
     this.localL01Nonces = new Map();
+    // Local protocol version found by probing the device (duid -> version).
+    // Some firmwares (e.g. S8 MaxV Ultra / a97 02.39.x) report pv "1.0" in
+    // HomeData but only answer L01 on the local TCP port.
+    this.localVersions = new Map();
     this.roomIDs = {};
     // current-room -> MQTT (opt-in telemetry): per-duid segment_id -> room name
     // cache, a lazily-opened local publisher client, and the last-published
@@ -1963,7 +1967,13 @@ class Roborock {
     }
   }
 
-  async getRobotVersion(duid) {
+  // HomeData's protocol version, or with transport "local" the version the
+  // device was found to speak on the LAN, if that differs.
+  async getRobotVersion(duid, transport) {
+    if (transport == "local" && this.localVersions.has(duid)) {
+      return this.localVersions.get(duid);
+    }
+
     const device = this.getAllHomeDevices().find(
       (device) => device.duid == duid
     );

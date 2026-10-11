@@ -9,7 +9,7 @@ class messageQueueHandler {
 
   async sendRequest(duid, method, params, secure = false, photo = false) {
     const remoteConnection = await this.adapter.isRemoteDevice(duid);
-    const version = await this.adapter.getRobotVersion(duid);
+    const version = await this.adapter.getRobotVersion(duid, "local");
 
     const deviceOnline = await this.adapter.onlineChecker(duid);
     const mqttConnectionState = this.adapter.rr_mqtt_connector.isConnected();
