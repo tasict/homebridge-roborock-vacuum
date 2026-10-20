@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.11
+
+- **Fix (HAP)**: Scene switches are named exactly like the scene in the Roborock app. Spaces used to be replaced with underscores ("Vacuum the Bedroom" became "Vacuum_the_Bedroom"), so Siri did not match the name you say. Leading and trailing spaces are dropped. Existing switches take the new name on the next restart unless you renamed them in the Home app. A scene without a name is called "Scene <id>", as the Matter scene buttons already were
+- **Fix (HAP)**: A scene switch or dock mop-wash switch you renamed in the Home app keeps that name when Homebridge restarts. The plugin wrote its own name back on every start. The rename is saved to the accessory cache right away, so it also survives Homebridge stopping without a clean shutdown. Switches you have not renamed still pick up a language change, or a scene renamed in the Roborock app, on the next restart
+
 ## 2.2.10
 
 - **Fix (connectivity)**: Vacuums whose home data reports protocol `1.0` but that only speak L01 on the LAN, such as the S8 MaxV Ultra (`roborock.vacuum.a97`) on firmware 02.39.x, are controlled locally again (#61). The plugin talked `1.0` to them, the vacuum ignored every local request, and each one timed out after 10 s before falling back to the cloud. Before connecting to a vacuum that reports `1.0`, the plugin now sends it an L01 hello on a separate connection; if the vacuum answers, its local connection uses L01, while cloud requests keep `1.0`. Vacuums that speak `1.0` do not answer, so connecting to them takes up to 3 s longer, and nothing else changes for them. The log shows `reports protocol 1.0 but answers L01 locally` when a vacuum is switched

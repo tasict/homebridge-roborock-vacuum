@@ -19,39 +19,85 @@ const Characteristic = {
 };
 
 const Service = {
-  AccessoryInformation: "AccessoryInformation",
-  Fanv2: "Fanv2",
-  Battery: "Battery",
-  Switch: "Switch",
-  FilterMaintenance: "FilterMaintenance",
+  AccessoryInformation: class AccessoryInformation {},
+  Fanv2: class Fanv2 {},
+  Battery: class Battery {},
+  Switch: class Switch {},
+  FilterMaintenance: class FilterMaintenance {},
 };
 
-function createServiceStub(type: string, subtype?: string) {
-  const service: any = {
+type ServiceType = (typeof Service)[keyof typeof Service];
+
+function createServiceStub(
+  type: ServiceType,
+  subtype?: string,
+  values: Record<string, unknown> = {}
+) {
+  const stored = new Map<unknown, unknown>(Object.entries(values));
+  const characteristics = new Map<unknown, any>();
+  const characteristic = (key: unknown) => {
+    if (!characteristics.has(key)) {
+      const listeners: ((change: unknown) => void)[] = [];
+      characteristics.set(key, {
+        get value() {
+          return stored.get(key);
+        },
+        onSet: jest.fn().mockReturnThis(),
+        onGet: jest.fn().mockReturnThis(),
+        on: jest.fn((_event: string, listener: (change: unknown) => void) => {
+          listeners.push(listener);
+        }),
+        // Mimics HAP: store the value and emit "change". A controller write
+        // carries its connection as originator, a plugin-side set none.
+        change: (value: unknown, reason: string, originator?: unknown) => {
+          stored.set(key, value);
+          listeners.forEach((listener) =>
+            listener({ newValue: value, reason, originator })
+          );
+        },
+      });
+    }
+    return characteristics.get(key);
+  };
+  const service: any = Object.assign(Object.create(type.prototype), {
     type,
     subtype,
-    setCharacteristic: jest.fn(() => service),
-    updateCharacteristic: jest.fn(() => service),
+    value: (key: unknown) => stored.get(key),
+    characteristic,
+    // HAP reports a plugin-side set as reason "write" with no originator.
+    setCharacteristic: jest.fn((key: unknown, value: unknown) => {
+      characteristic(key).change(value, "write");
+      return service;
+    }),
+    updateCharacteristic: jest.fn((key: unknown, value: unknown) => {
+      stored.set(key, value);
+      return service;
+    }),
     addOptionalCharacteristic: jest.fn(),
-    getCharacteristic: jest.fn(() => ({
-      onSet: jest.fn().mockReturnThis(),
-      onGet: jest.fn().mockReturnThis(),
-    })),
-  };
+    testCharacteristic: jest.fn((key: unknown) => stored.has(key)),
+    getCharacteristic: jest.fn((key: unknown) => characteristic(key)),
+  });
   return service;
 }
 
-function createAccessory() {
-  const services: any[] = [createServiceStub(Service.AccessoryInformation)];
+function createAccessory(cached: any[] = []) {
+  const services: any[] = [
+    createServiceStub(Service.AccessoryInformation),
+    ...cached,
+  ];
   return {
     context: "duid-1",
     services,
-    getService: (type: string) =>
+    getService: (type: ServiceType) =>
       services.find((s) => s.type === type && s.subtype === undefined),
-    getServiceById: (type: string, subtype: string) =>
+    getServiceById: (type: ServiceType, subtype: string) =>
       services.find((s) => s.type === type && s.subtype === subtype),
-    addService: (type: string, _name?: string, subtype?: string) => {
-      const service = createServiceStub(type, subtype);
+    addService: (type: ServiceType, name?: string, subtype?: string) => {
+      const service = createServiceStub(
+        type,
+        subtype,
+        name ? { [Characteristic.Name]: name } : {}
+      );
       services.push(service);
       return service;
     },
@@ -71,6 +117,7 @@ function createPlatform(
     Service,
     Characteristic,
     log: { debug: jest.fn(), error: jest.fn(), info: jest.fn() },
+    saveAccessory: jest.fn(),
     roborockAPI: {
       getProductAttribute: jest.fn(() => "roborock.vacuum.a75"),
       getVacuumDeviceInfo: jest.fn(
@@ -91,12 +138,35 @@ function createPlatform(
 
 function createVacuum(
   status: Record<string, unknown>,
-  info: Record<string, unknown> = {}
+  info: Record<string, unknown> = {},
+  setup: {
+    scenes?: any[];
+    dockWashName?: string;
+    cached?: any[];
+  } = {}
 ) {
   const platform = createPlatform(status, info);
-  const accessory = createAccessory();
+  if (setup.scenes) {
+    platform.roborockAPI.getScenesForDevice.mockReturnValue(setup.scenes);
+  }
+  if (setup.dockWashName !== undefined) {
+    platform.roborockAPI.isDockWashSupported.mockReturnValue(true);
+    platform.roborockAPI.getTranslation.mockImplementation((key: string) =>
+      key === "app_start_wash" ? setup.dockWashName! : ""
+    );
+  }
+  const accessory = createAccessory(setup.cached);
   new RoborockVacuumAccessory(platform as any, accessory as any);
   return { platform, accessory };
+}
+
+// A switch restored from the Homebridge accessory cache: Name holds the
+// default the plugin assigned last time, ConfiguredName what Home shows.
+function cachedSwitch(subtype: string, name: string, configuredName: string) {
+  return createServiceStub(Service.Switch, subtype, {
+    [Characteristic.Name]: name,
+    [Characteristic.ConfiguredName]: configuredName,
+  });
 }
 
 describe("RoborockVacuumAccessory consumables", () => {
@@ -197,5 +267,133 @@ describe("RoborockVacuumAccessory status flags", () => {
     expect(
       accessory.getService(Service.AccessoryInformation).updateCharacteristic
     ).toHaveBeenCalledWith(Characteristic.FirmwareRevision, "02.20.60");
+  });
+});
+
+describe("RoborockVacuumAccessory switch names", () => {
+  const bedroom = { id: 1, name: "Vacuum the Bedroom", enabled: true };
+
+  it("names a scene switch after the Roborock scene, spaces included", () => {
+    const { platform, accessory } = createVacuum({}, {}, { scenes: [bedroom] });
+    const scene = accessory.getServiceById(Service.Switch, "scene-1");
+
+    expect(scene.value(Characteristic.Name)).toBe("Vacuum the Bedroom");
+    expect(scene.value(Characteristic.ConfiguredName)).toBe(
+      "Vacuum the Bedroom"
+    );
+    expect(platform.log.error).not.toHaveBeenCalled();
+  });
+
+  it("trims scene names and falls back to the scene id when empty", () => {
+    const { accessory } = createVacuum(
+      {},
+      {},
+      {
+        scenes: [
+          { id: 7, name: "  ", enabled: true },
+          { id: 8, name: " Kitchen mop ", enabled: true },
+        ],
+      }
+    );
+
+    expect(
+      accessory
+        .getServiceById(Service.Switch, "scene-7")
+        .value(Characteristic.ConfiguredName)
+    ).toBe("Scene 7");
+    expect(
+      accessory
+        .getServiceById(Service.Switch, "scene-8")
+        .value(Characteristic.ConfiguredName)
+    ).toBe("Kitchen mop");
+  });
+
+  it("removes cached scene switches whose scene is gone", () => {
+    const gone = cachedSwitch("scene-9", "Old scene", "Old scene");
+    const { platform, accessory } = createVacuum(
+      {},
+      {},
+      { scenes: [bedroom], cached: [gone] }
+    );
+
+    expect(accessory.services).not.toContain(gone);
+    expect(accessory.getServiceById(Service.Switch, "scene-1")).toBeDefined();
+    expect(platform.log.error).not.toHaveBeenCalled();
+  });
+
+  it("saves the cache as soon as the Home app renames a switch", () => {
+    const { platform, accessory } = createVacuum({}, {}, { scenes: [bedroom] });
+    const configuredName = accessory
+      .getServiceById(Service.Switch, "scene-1")
+      .characteristic(Characteristic.ConfiguredName);
+
+    // Naming the switch at startup, a later plugin-side set and a value
+    // update do not save; a write from the Home app does.
+    expect(platform.saveAccessory).not.toHaveBeenCalled();
+    configuredName.change("Bedroom clean", "write");
+    configuredName.change("Bedroom clean", "update");
+    expect(platform.saveAccessory).not.toHaveBeenCalled();
+
+    const homeApp = { remoteAddress: "192.168.1.20" };
+    configuredName.change("Bedroom clean", "write", homeApp);
+    expect(platform.saveAccessory).toHaveBeenCalledTimes(1);
+    expect(platform.saveAccessory).toHaveBeenCalledWith(accessory);
+  });
+
+  it("moves a cached switch off the old underscore name", () => {
+    const cached = cachedSwitch(
+      "scene-1",
+      "Vacuum_the_Bedroom",
+      "Vacuum_the_Bedroom"
+    );
+    createVacuum({}, {}, { scenes: [bedroom], cached: [cached] });
+
+    expect(cached.value(Characteristic.Name)).toBe("Vacuum the Bedroom");
+    expect(cached.value(Characteristic.ConfiguredName)).toBe(
+      "Vacuum the Bedroom"
+    );
+  });
+
+  it("keeps a scene switch renamed in the Home app", () => {
+    const cached = cachedSwitch(
+      "scene-1",
+      "Vacuum_the_Bedroom",
+      "Bedroom clean"
+    );
+    createVacuum({}, {}, { scenes: [bedroom], cached: [cached] });
+
+    expect(cached.value(Characteristic.Name)).toBe("Vacuum the Bedroom");
+    expect(cached.value(Characteristic.ConfiguredName)).toBe("Bedroom clean");
+    expect(cached.setCharacteristic).not.toHaveBeenCalledWith(
+      Characteristic.ConfiguredName,
+      expect.anything()
+    );
+    // Already on the cached service, so it is not added again.
+    expect(cached.addOptionalCharacteristic).not.toHaveBeenCalled();
+  });
+
+  it("names a cached switch that has no ConfiguredName yet", () => {
+    const cached = cachedSwitch("scene-1", "Vacuum_the_Bedroom", "");
+    createVacuum({}, {}, { scenes: [bedroom], cached: [cached] });
+
+    expect(cached.value(Characteristic.ConfiguredName)).toBe(
+      "Vacuum the Bedroom"
+    );
+  });
+
+  it("renames the dock wash switch after a language change", () => {
+    const cached = cachedSwitch("dock-wash", "Start washing", "Start washing");
+    createVacuum({}, {}, { dockWashName: "開始洗拖布", cached: [cached] });
+
+    expect(cached.value(Characteristic.Name)).toBe("開始洗拖布");
+    expect(cached.value(Characteristic.ConfiguredName)).toBe("開始洗拖布");
+  });
+
+  it("keeps a dock wash switch renamed in the Home app", () => {
+    const cached = cachedSwitch("dock-wash", "Start washing", "Mop wash");
+    createVacuum({}, {}, { dockWashName: "開始洗拖布", cached: [cached] });
+
+    expect(cached.value(Characteristic.Name)).toBe("開始洗拖布");
+    expect(cached.value(Characteristic.ConfiguredName)).toBe("Mop wash");
   });
 });

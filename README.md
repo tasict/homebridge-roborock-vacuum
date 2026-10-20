@@ -21,7 +21,7 @@ This plugin is inspired by and adapted from the [ioBroker.roborock](https://gith
 - **Automatic device discovery** — no device IDs or IP addresses to look up. The Roborock region is detected from your account.
 - **Start, stop and send home** — over HomeKit the vacuum is a fan-style accessory: turn it on to start cleaning, off to stop and return to the dock.
 - **Battery, charging and status** — battery level, charging state, low-battery warning, and a fault/offline flag when the vacuum reports an error or loses its connection.
-- **Roborock scenes as switches** — every enabled scene from the Roborock app that uses the vacuum can be run from Apple Home.
+- **Roborock scenes as switches** — every enabled scene from the Roborock app that uses the vacuum can be run from Apple Home. Each switch has the scene's name, and a name you give it in the Home app is kept.
 - **Dock mop-wash switch** on docks that wash the mop. See [Dock mop-wash switch](#dock-mop-wash-switch).
 - **Consumables** (HomeKit) — remaining life of the filter, main brush and side brush, with a change reminder at 5% or less.
 - **Clear errors from the settings page** — an error the vacuum or dock keeps reporting after you fixed the cause can be cleared without the Roborock app. See [Clearing device errors](#clearing-device-errors).
@@ -163,7 +163,7 @@ On vacuums whose dock can wash the mop (G10, S7 Pro/MaxV Ultra, S7 Max Ultra, S8
 
 The switch is **stateful**: it turns on whenever the dock is washing the mop — including washes started from the Roborock app or mid-clean wash cycles — and turning it off stops the wash. Devices without a washing dock don't get the switch.
 
-The switch's default name comes from the plugin's translation catalog in the language selected by the **Language** option on the settings page (`"language"` in `config.json`; default `en`, 12 languages including `zh-cn` and `zh-tw`). Changing the language only renames accessories on the next restart — accessory identities never change, so **no re-pairing and no room re-selection is needed**. You can also rename the switch freely in your home app.
+The switch's default name comes from the plugin's translation catalog in the language selected by the **Language** option on the settings page (`"language"` in `config.json`; default `en`, 12 languages including `zh-cn` and `zh-tw`). Changing the language only renames accessories on the next restart — accessory identities never change, so **no re-pairing and no room re-selection is needed**. You can also rename the switch freely in your home app; a renamed switch keeps your name across restarts and language changes.
 
 ## Clearing device errors
 

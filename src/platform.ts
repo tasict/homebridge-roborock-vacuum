@@ -1050,4 +1050,13 @@ export default class RoborockPlatform implements DynamicPlatformPlugin {
   createRoborockAccessory(accessory: PlatformAccessory<String>) {
     this.vacuums.push(new RoborockVacuumAccessory(this, accessory));
   }
+
+  /**
+   * Write the accessory cache to disk now. Homebridge otherwise saves it only
+   * when accessories are registered, updated or removed, and on a clean
+   * shutdown.
+   */
+  saveAccessory(accessory: PlatformAccessory<String>) {
+    this.api.updatePlatformAccessories([accessory]);
+  }
 }

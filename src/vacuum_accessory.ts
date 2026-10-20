@@ -162,17 +162,7 @@ export default class RoborockVacuumAccessory {
           "dock-wash"
         );
 
-      switchService.setCharacteristic(
-        this.platform.Characteristic.Name,
-        switchName
-      );
-      switchService.addOptionalCharacteristic(
-        this.platform.Characteristic.ConfiguredName
-      );
-      switchService.setCharacteristic(
-        this.platform.Characteristic.ConfiguredName,
-        switchName
-      );
+      this.applyDefaultName(switchService, switchName);
 
       switchService
         .getCharacteristic(this.platform.Characteristic.On)
@@ -381,6 +371,47 @@ export default class RoborockVacuumAccessory {
   }
 
   /**
+   * Give a switch the plugin's default name without undoing a rename made in
+   * the Home app. Controllers cannot write Name, so it always holds the last
+   * default the plugin assigned; the Home app stores a rename in
+   * ConfiguredName. Both survive restarts in the accessory cache, so a
+   * ConfiguredName that is empty or still equals the cached Name was never
+   * renamed and follows the new default (a language change, a scene renamed
+   * in the Roborock app). A renamed one is left alone.
+   */
+  private applyDefaultName(service: Service, name: string) {
+    const { Name, ConfiguredName } = this.platform.Characteristic;
+    // A cached service already has it; adding it again would grow the
+    // cached optional characteristics list on every start.
+    if (!service.testCharacteristic(ConfiguredName)) {
+      service.addOptionalCharacteristic(ConfiguredName);
+    }
+    const configuredName = service.getCharacteristic(ConfiguredName);
+
+    const previousDefault = service.getCharacteristic(Name).value;
+    const shownName = configuredName.value;
+
+    service.setCharacteristic(Name, name);
+    if (!shownName || shownName === previousDefault) {
+      service.setCharacteristic(ConfiguredName, name);
+    } else if (shownName !== name) {
+      this.platform.log.debug(
+        `Keeping the Home app name '${shownName}' instead of '${name}'`
+      );
+    }
+
+    // Save a rename right away. Homebridge writes the cache only on a clean
+    // shutdown, so after a crash the cached ConfiguredName would still equal
+    // Name and the next start would overwrite the rename. Only a controller
+    // write has an originator; the plugin's own sets also report "write".
+    configuredName.on("change", (change) => {
+      if (String(change.reason) === "write" && change.originator) {
+        this.platform.saveAccessory(this.accessory);
+      }
+    });
+  }
+
+  /**
    * Update scene switches based on available scenes for this device
    */
   updateSceneSwitches() {
@@ -402,10 +433,11 @@ export default class RoborockVacuumAccessory {
         for (const scene of deviceScenes) {
           try {
             const sceneId = scene.id.toString();
-            const sceneName = scene.name.replace(/ /g, "_");
+            const sceneName =
+              String(scene.name ?? "").trim() || `Scene ${sceneId}`;
             if (!this.sceneServices.has(sceneId) && scene.enabled) {
               this.platform.log.debug(
-                `Adding scene switch for: ${scene.name} (ID: ${sceneId})`
+                `Adding scene switch for: ${sceneName} (ID: ${sceneId})`
               );
 
               const switchService =
@@ -419,18 +451,7 @@ export default class RoborockVacuumAccessory {
                   `scene-${sceneId}`
                 );
 
-              switchService.setCharacteristic(
-                this.platform.Characteristic.Name,
-                sceneName
-              );
-
-              switchService.addOptionalCharacteristic(
-                this.platform.Characteristic.ConfiguredName
-              );
-              switchService.setCharacteristic(
-                this.platform.Characteristic.ConfiguredName,
-                sceneName
-              );
+              this.applyDefaultName(switchService, sceneName);
 
               switchService
                 .getCharacteristic(this.platform.Characteristic.On)
