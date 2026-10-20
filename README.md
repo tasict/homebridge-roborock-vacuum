@@ -91,7 +91,7 @@ The settings page writes these keys to the `RoborockVacuumPlatform` block in `co
 #### What you get over Matter
 
 - The **native robot-vacuum accessory** in Apple Home (proper icon, start/stop, Siri) instead of the fan-style HAP accessory.
-- **Room cleaning**: the vacuum's named rooms are exposed through the Matter ServiceArea cluster. Pick rooms in the controller and start cleaning — selecting none (or all) runs a full clean. While a room clean runs, the controller shows the room currently being cleaned.
+- **Room cleaning**: the vacuum's named rooms are exposed through the Matter ServiceArea cluster. Pick rooms in the controller and start cleaning — selecting none (or all) runs a full clean. While a room clean runs, the controller shows the room currently being cleaned. Vacuums with several saved floor maps publish each floor as its own map (Apple Home shows a **Cleaning Map** picker): see [Multi-floor maps](#multi-floor-maps).
 - **Vacuum / Mop / Vacuum & Mop** clean modes, mapped to the Roborock suction and water-box settings (models without a water box only offer Vacuum).
 - **Battery, charging state and error reporting** (stuck, dust bin missing, dock unreachable, … are surfaced as Matter operational errors).
 - Every Roborock **scene** that targets the device becomes an on/off button (see step 5 below). When the same scene name exists on more than one Matter vacuum, the vacuum's name is appended to keep the buttons distinguishable.
@@ -115,12 +115,21 @@ Run-mode semantics follow the Matter spec: setting the run mode to **Idle stops*
 
 Pairing is one-time per node — switching a device between HAP and Matter later does **not** require re-pairing, but note that **changing a device's protocol re-creates the accessory**, so room and automation assignments in your home app are lost and must be re-organized.
 
+#### Multi-floor maps
+
+When the vacuum has more than one saved map, every floor is published with its own rooms, and Apple Home lists them under **Cleaning Map**.
+
+- **Learning each floor's rooms**: the vacuum only reports the rooms of the map it has loaded. Once, while the vacuum sits idle on its dock, the plugin loads each other map for a few seconds, reads its rooms and loads the original map again, like Home Assistant does. The vacuum does not move. The result is saved on disk (`roborock.multimap.<duid>.json` in the Homebridge storage folder), and the loaded map's rooms keep updating on every refresh. A map without named rooms is checked again at most once a day.
+- **Floors without rooms**: a map whose rooms are not divided or named in the Roborock app is published as one area named after the floor. Selecting it cleans the whole floor.
+- **Cleaning another floor**: starting a clean of rooms on a map that is not loaded first loads that map, like a Roborock scene that switches floors, and only cleans once the vacuum lists the same rooms on it. **The vacuum must already be on that floor.** Rooms from several floors cannot be cleaned in one go, and maps are only switched while the vacuum is idle on its dock.
+- A vacuum with a single map keeps its existing map and area ids, so room selections and automations are unchanged.
+
 #### Known limitations
 
 - **Apple Home compatibility is immature** — see the warning at the top of this section. Treat this as a beta and expect to occasionally re-pair or restart Homebridge after controller/iOS updates.
 - The device always pairs as a generic, uncertified **"Matter Accessory"**: controllers look the bridge's test vendor ID up in the certification database and ignore the name the device advertises, so the name must be entered manually (the pairing panel shows what to type).
 - Scene buttons require the **separate bridge pairing** (step 5) and appear as plain on/off switches in the controller.
-- Multi-floor maps are not exposed (rooms come from the currently active map), and zone cleaning, consumables and dock controls other than the mop-wash switch are not available over Matter yet.
+- Zone cleaning, consumables and dock controls other than the mop-wash switch are not available over Matter yet.
 
 ## Cloud outages and local-only mode
 

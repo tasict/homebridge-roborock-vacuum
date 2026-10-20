@@ -465,10 +465,11 @@ describe("RoborockVacuumMatterAccessory", () => {
 
   describe("service area updates", () => {
     it("pushes new rooms once they become known", () => {
-      const { accessory, updateAccessoryState } = makeAccessory({
+      const { accessory, roborockAPI, updateAccessoryState } = makeAccessory({
         getSegmentRooms: jest.fn().mockReturnValue([]),
       });
-      accessory.updateSupportedAreas(ROOMS);
+      roborockAPI.getSegmentRooms.mockReturnValue(ROOMS);
+      accessory.updateSupportedAreas();
       const updates = clusterUpdates(updateAccessoryState, "serviceArea");
       expect(updates).toHaveLength(1);
       expect((updates[0].supportedAreas as any[]).map((a) => a.areaId)).toEqual(
@@ -486,7 +487,7 @@ describe("RoborockVacuumMatterAccessory", () => {
 
     it("does not push an unchanged room list", () => {
       const { accessory, updateAccessoryState } = makeAccessory();
-      accessory.updateSupportedAreas(ROOMS);
+      accessory.updateSupportedAreas();
       expect(clusterUpdates(updateAccessoryState, "serviceArea")).toEqual([]);
     });
 
@@ -509,6 +510,138 @@ describe("RoborockVacuumMatterAccessory", () => {
       expect(
         clusterUpdates(updateAccessoryState, "serviceArea")
       ).toContainEqual({ currentArea: null });
+    });
+  });
+
+  describe("multi-floor maps", () => {
+    // Ground floor (mapFlag 0) loaded; first floor (2) has rooms that reuse
+    // segment id 16; attic (3) has no named rooms.
+    const MULTI = {
+      currentMapFlag: 0,
+      maps: [
+        { mapFlag: 0, name: "Ground" },
+        { mapFlag: 2, name: "First" },
+        { mapFlag: 3, name: "Attic" },
+      ],
+      rooms: [
+        { mapFlag: 0, segmentId: 16, name: "Kitchen" },
+        { mapFlag: 0, segmentId: 17, name: "Hall" },
+        { mapFlag: 2, segmentId: 16, name: "Bedroom" },
+        { mapFlag: 2, segmentId: 17, name: "Study" },
+      ],
+    };
+
+    function makeMulti(overrides: Record<string, unknown> = {}) {
+      let current = 0;
+      const made = makeAccessory({
+        getMultiMapAreas: jest.fn(() => ({
+          ...MULTI,
+          currentMapFlag: current,
+        })),
+        getCurrentMapFlag: jest.fn(() => current),
+        switchToMap: jest.fn(async (_duid: string, mapFlag: number) => {
+          current = mapFlag;
+          return mapFlag === 2 ? { 16: "Bedroom", 17: "Study" } : {};
+        }),
+        ...overrides,
+      });
+      return { ...made, setCurrent: (flag: number) => (current = flag) };
+    }
+
+    const select = (accessory: any, newAreas: number[]) =>
+      accessory.handlers.serviceArea.selectAreas({ newAreas });
+    const start = (accessory: any) =>
+      accessory.handlers.rvcRunMode.changeToMode({ newMode: 1 });
+
+    it("publishes one map per floor and unique area ids", () => {
+      const { accessory } = makeMulti();
+      const serviceArea = (accessory.clusters as any).serviceArea;
+      expect(serviceArea.supportedMaps).toEqual([
+        { mapId: 1, name: "Ground" },
+        { mapId: 3, name: "First" },
+        { mapId: 4, name: "Attic" },
+      ]);
+      expect(
+        serviceArea.supportedAreas.map((a: any) => [
+          a.areaId,
+          a.mapId,
+          a.areaInfo.locationInfo.locationName,
+        ])
+      ).toEqual([
+        [1016, 1, "Kitchen"],
+        [1017, 1, "Hall"],
+        [3016, 3, "Bedroom"],
+        [3017, 3, "Study"],
+        [4999, 4, "Attic"],
+      ]);
+    });
+
+    it("cleans rooms of the loaded floor without switching maps", async () => {
+      const { accessory, roborockAPI } = makeMulti();
+      await select(accessory, [1017]);
+      await start(accessory);
+      expect(roborockAPI.switchToMap).not.toHaveBeenCalled();
+      expect(roborockAPI.app_segment_clean).toHaveBeenCalledWith(DUID, [17]);
+    });
+
+    it("loads another floor's map before cleaning its rooms", async () => {
+      const { accessory, roborockAPI } = makeMulti();
+      await select(accessory, [3016]);
+      expect(roborockAPI.switchToMap).not.toHaveBeenCalled();
+      await start(accessory);
+      expect(roborockAPI.switchToMap).toHaveBeenCalledWith(DUID, 2);
+      expect(roborockAPI.app_segment_clean).toHaveBeenCalledWith(DUID, [16]);
+    });
+
+    it("runs a full clean for a floor without named rooms", async () => {
+      const { accessory, roborockAPI } = makeMulti();
+      await select(accessory, [4999]);
+      await start(accessory);
+      expect(roborockAPI.switchToMap).toHaveBeenCalledWith(DUID, 3);
+      expect(roborockAPI.app_start).toHaveBeenCalledWith(DUID);
+      expect(roborockAPI.app_segment_clean).not.toHaveBeenCalled();
+    });
+
+    it("refuses rooms on several floors", async () => {
+      const { accessory } = makeMulti();
+      await expect(select(accessory, [1016, 3016])).rejects.toBeInstanceOf(
+        MatterStatus.InvalidAction
+      );
+    });
+
+    it("refuses to clean when the switched map no longer lists the room", async () => {
+      const { accessory, roborockAPI } = makeMulti({
+        switchToMap: jest.fn().mockResolvedValue({ 16: "Office" }),
+      });
+      await select(accessory, [3016]);
+      await expect(start(accessory)).rejects.toBeInstanceOf(
+        MatterStatus.InvalidInState
+      );
+      expect(roborockAPI.app_segment_clean).not.toHaveBeenCalled();
+      expect(roborockAPI.app_start).not.toHaveBeenCalled();
+    });
+
+    it("refuses to clean when the map switch fails", async () => {
+      const { accessory, roborockAPI } = makeMulti({
+        switchToMap: jest.fn().mockRejectedValue(new Error("vacuum is busy")),
+      });
+      await select(accessory, [3016]);
+      await expect(start(accessory)).rejects.toBeInstanceOf(
+        MatterStatus.InvalidInState
+      );
+      expect(roborockAPI.app_segment_clean).not.toHaveBeenCalled();
+    });
+
+    it("reports the current room on the loaded floor", () => {
+      const { accessory, updateAccessoryState, setCurrent } = makeMulti();
+      setCurrent(2);
+      accessory.updateFromRoborockData({
+        state: 18,
+        cleaning_info: { segment_id: 16 },
+      });
+      expect(
+        clusterUpdates(updateAccessoryState, "serviceArea")
+      ).toContainEqual({ currentArea: 3016 });
     });
   });
 });

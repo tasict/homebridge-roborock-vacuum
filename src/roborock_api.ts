@@ -19,6 +19,19 @@ export interface RoborockSegmentRoom {
   name: string;
 }
 
+/** A saved floor map (get_multi_maps_list). */
+export interface RoborockFloorMap {
+  mapFlag: number;
+  name: string;
+}
+
+/** Every floor map and its named rooms, for the Matter ServiceArea cluster. */
+export interface RoborockMultiMapAreas {
+  currentMapFlag: number;
+  maps: RoborockFloorMap[];
+  rooms: Array<RoborockSegmentRoom & { mapFlag: number }>;
+}
+
 /** A Roborock app scene ("routine") targeting a device. */
 export interface RoborockScene {
   id: number | string;
@@ -63,6 +76,8 @@ export interface RoborockApi {
   isLocallyConnected(duid: string): boolean;
   getProductAttribute(duid: string, attribute: string): string | null;
   getSegmentRooms(duid: string): RoborockSegmentRoom[];
+  getMultiMapAreas?(duid: string): RoborockMultiMapAreas;
+  getCurrentMapFlag?(duid: string): number | null;
   getScenesForDevice(duid: string): RoborockScene[];
   isDockWashSupported(duid: string): boolean;
   getCleanModeCapabilities(duid: string): CleanModeCapabilities;
@@ -87,6 +102,7 @@ export interface RoborockApi {
     repeat?: number
   ): Promise<void>;
   resume_segment_clean(duid: string): Promise<void>;
+  switchToMap?(duid: string, mapFlag: number): Promise<Record<string, string>>;
   setCleanModeParameters(
     duid: string,
     parameters: { fan_power?: number; water_box_mode?: number }

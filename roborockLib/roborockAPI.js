@@ -100,6 +100,11 @@ class Roborock {
     // cache, a lazily-opened local publisher client, and the last-published
     // dedupe key per duid. All inert unless config.currentRoomMqtt.enabled.
     this.segmentRoomNames = {};
+    // Multi-floor maps: per-duid { maps: [{ mapFlag, name }], rooms:
+    // { [mapFlag]: { [segmentId]: name } } }, persisted so the map-cycling
+    // discovery (see discoverMultiMapRooms) runs once, not on every boot.
+    this.multiMapData = {};
+    this._mapDiscoveryRunning = new Set();
     this.localMqttClient = null;
     this._lastRoomPublishKey = {};
     this.vacuums = {};
@@ -1625,6 +1630,8 @@ class Roborock {
 
       await vacuum.getParameter(duid, "get_room_mapping");
 
+      await this.refreshMultiMaps(duid);
+
       await vacuum.getParameter(duid, "get_consumable");
 
       switch (robotModel) {
@@ -2387,6 +2394,303 @@ class Roborock {
       }))
       .filter((room) => Number.isFinite(room.segmentId))
       .sort((a, b) => a.segmentId - b.segmentId);
+  }
+
+  /**
+   * The loaded floor map's mapFlag (get_status map_status >> 2), or null when
+   * unknown or no map is loaded (63). Mirrors python-roborock current_map.
+   */
+  getCurrentMapFlag(duid) {
+    const mapStatus = this.getLiveStatus(duid, "map_status");
+    if (typeof mapStatus !== "number") {
+      return null;
+    }
+    const mapFlag = mapStatus >> 2;
+    return mapFlag === 63 ? null : mapFlag;
+  }
+
+  isMapDiscoveryRunning(duid) {
+    return this._mapDiscoveryRunning.has(duid);
+  }
+
+  getMultiMapCachePath(duid) {
+    return this.getPersistPath(`multimap.${duid}.json`);
+  }
+
+  loadMultiMapCache(duid) {
+    if (this.multiMapData[duid]) {
+      return this.multiMapData[duid];
+    }
+    let data = { maps: [], rooms: {} };
+    try {
+      const raw = JSON.parse(
+        fs.readFileSync(this.getMultiMapCachePath(duid), "utf8")
+      );
+      if (raw && Array.isArray(raw.maps) && raw.rooms) {
+        data = raw;
+      }
+    } catch (error) {
+      // No cache yet.
+    }
+    this.multiMapData[duid] = data;
+    return data;
+  }
+
+  saveMultiMapCache(duid) {
+    try {
+      fs.writeFileSync(
+        this.getMultiMapCachePath(duid),
+        JSON.stringify(this.multiMapData[duid])
+      );
+    } catch (error) {
+      this.log.warn(`Failed to save multi-map cache: ${error.message}`);
+    }
+  }
+
+  /** Called by the get_room_mapping poll with the loaded map's rooms. */
+  recordCurrentMapRooms(duid, names) {
+    const mapFlag = this.getCurrentMapFlag(duid);
+    if (mapFlag === null) {
+      return;
+    }
+    const data = this.loadMultiMapCache(duid);
+    if (JSON.stringify(data.rooms[mapFlag] || {}) !== JSON.stringify(names)) {
+      data.rooms[mapFlag] = { ...names };
+      this.saveMultiMapCache(duid);
+    }
+  }
+
+  async requestRoomNames(duid) {
+    const mappedRooms = await this.messageQueueHandler.sendRequest(
+      duid,
+      "get_room_mapping",
+      []
+    );
+    const names = {};
+    this._lastRoomMappingSize = (mappedRooms || []).length;
+    for (const mappedRoom of mappedRooms || []) {
+      const roomName = this.roomIDs[mappedRoom[1]];
+      if (roomName) {
+        names[mappedRoom[0]] = roomName;
+      }
+    }
+    return names;
+  }
+
+  /**
+   * Refresh the saved floor-map list (get_multi_maps_list) and, when a map's
+   * rooms are not cached yet, run the one-time discovery. V1 devices only.
+   */
+  async refreshMultiMaps(duid) {
+    if (
+      this.getVacuumDeviceInfo(duid, "pv") !== "1.0" ||
+      this.isMapDiscoveryRunning(duid)
+    ) {
+      return;
+    }
+    let list;
+    try {
+      const result = await this.messageQueueHandler.sendRequest(
+        duid,
+        "get_multi_maps_list",
+        []
+      );
+      list = Array.isArray(result) ? result[0] : result;
+    } catch (error) {
+      this.log.debug(`get_multi_maps_list failed: ${error && error.message}`);
+      return;
+    }
+    const maps = ((list && list.map_info) || [])
+      .filter((info) => typeof info.mapFlag === "number")
+      .map((info) => ({
+        mapFlag: info.mapFlag,
+        name: String(info.name || `Map ${info.mapFlag + 1}`),
+      }));
+    const data = this.loadMultiMapCache(duid);
+    const flags = new Set(maps.map((map) => map.mapFlag));
+    if (JSON.stringify(data.maps) !== JSON.stringify(maps)) {
+      data.maps = maps;
+      // Drop rooms of maps that were deleted in the Roborock app.
+      for (const flag of Object.keys(data.rooms)) {
+        if (!flags.has(Number(flag))) {
+          delete data.rooms[flag];
+        }
+      }
+      this.saveMultiMapCache(duid);
+    }
+    // Maps with no named rooms are retried at most once a day, so an unnamed
+    // floor never makes the robot cycle maps on every poll.
+    const attempted = data.attempted || {};
+    const due = maps.some(
+      (map) =>
+        !data.rooms[map.mapFlag] &&
+        Date.now() - (attempted[map.mapFlag] || 0) > 24 * 3600 * 1000
+    );
+    if (due) {
+      await this.discoverMultiMapRooms(duid);
+    }
+  }
+
+  /**
+   * Learn every floor map's rooms. The firmware only reports rooms for the
+   * loaded map, so — like python-roborock's HomeTrait.discover_home — each
+   * other map is loaded in turn (load_multi_map), its rooms read, and the
+   * original map loaded again last. Only runs while the robot sits idle on
+   * its dock; the robot does not move, the map selection merely changes for
+   * a few seconds.
+   */
+  async discoverMultiMapRooms(duid) {
+    const state = this.getVacuumDeviceStatus(duid, "state");
+    if (![3, 8, 100].includes(state)) {
+      this.log.info(
+        `Multi-map discovery postponed: vacuum not idle on its dock (state ${state}).`
+      );
+      return;
+    }
+    const original = this.getCurrentMapFlag(duid);
+    const data = this.loadMultiMapCache(duid);
+    if (original === null || !data.maps.some((m) => m.mapFlag === original)) {
+      this.log.info("Multi-map discovery postponed: loaded map unknown.");
+      return;
+    }
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    this._mapDiscoveryRunning.add(duid);
+    this.log.info(
+      `Multi-map discovery: reading rooms of ${data.maps.length} floor map(s); restoring map ${original} afterwards.`
+    );
+    try {
+      for (const map of data.maps) {
+        if (map.mapFlag === original || data.rooms[map.mapFlag]) {
+          continue;
+        }
+        data.attempted = {
+          ...(data.attempted || {}),
+          [map.mapFlag]: Date.now(),
+        };
+        await this.messageQueueHandler.sendRequest(duid, "load_multi_map", [
+          map.mapFlag,
+        ]);
+        await sleep(3000);
+        let names = await this.requestRoomNames(duid);
+        if (Object.keys(names).length === 0) {
+          // The firmware can answer with the previous (or no) mapping right
+          // after a map load; give it longer once.
+          await sleep(7000);
+          names = await this.requestRoomNames(duid);
+        }
+        this.log.info(
+          `Multi-map discovery: '${map.name}' has ${Object.keys(names).length} named room(s) (${this._lastRoomMappingSize} segment(s) reported).`
+        );
+        if (Object.keys(names).length > 0) {
+          data.rooms[map.mapFlag] = names;
+        }
+      }
+    } catch (error) {
+      this.log.error(`Multi-map discovery failed: ${error && error.message}`);
+    } finally {
+      try {
+        await this.messageQueueHandler.sendRequest(duid, "load_multi_map", [
+          original,
+        ]);
+        await sleep(3000);
+        await this.pollStatus(duid);
+        data.rooms[original] = await this.requestRoomNames(duid);
+      } catch (error) {
+        this.log.error(
+          `Multi-map discovery could not restore map ${original}: ${error && error.message}`
+        );
+      }
+      this._mapDiscoveryRunning.delete(duid);
+      const restored = this.getCurrentMapFlag(duid);
+      if (restored !== original) {
+        this.log.error(
+          `Multi-map discovery left map ${restored} loaded instead of ${original}; select the right floor in the Roborock app.`
+        );
+      }
+      this.saveMultiMapCache(duid);
+    }
+  }
+
+  /**
+   * Load another saved floor map (load_multi_map) before a room clean there,
+   * like a Roborock scene that switches maps. Only while the robot is idle on
+   * its dock. Returns the loaded map's { segmentId: name } so the caller can
+   * check the rooms it is about to clean; throws when the switch did not
+   * take.
+   */
+  async switchToMap(duid, mapFlag) {
+    const state = this.getVacuumDeviceStatus(duid, "state");
+    if (![3, 8, 100].includes(state)) {
+      throw new Error(`vacuum is busy (state ${state}); not switching maps`);
+    }
+    if (this.isMapDiscoveryRunning(duid)) {
+      throw new Error("multi-map discovery is running");
+    }
+    this._mapDiscoveryRunning.add(duid);
+    try {
+      await this.messageQueueHandler.sendRequest(duid, "load_multi_map", [
+        mapFlag,
+      ]);
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await sleep(3000);
+        await this.pollStatus(duid);
+        if (this.getCurrentMapFlag(duid) === mapFlag) {
+          break;
+        }
+      }
+      if (this.getCurrentMapFlag(duid) !== mapFlag) {
+        throw new Error(`map ${mapFlag} did not load`);
+      }
+      const names = await this.requestRoomNames(duid);
+      this.segmentRoomNames[duid] = names;
+      return names;
+    } finally {
+      this._mapDiscoveryRunning.delete(duid);
+    }
+  }
+
+  /**
+   * Every floor map and its rooms for the Matter ServiceArea cluster:
+   * { currentMapFlag, maps: [{ mapFlag, name }], rooms: [{ mapFlag,
+   * segmentId, name }] }. Maps without discovered rooms are left out; the
+   * loaded map's rooms always come from the live get_room_mapping cache.
+   */
+  getMultiMapAreas(duid) {
+    const data = this.loadMultiMapCache(duid);
+    const currentMapFlag = this.getCurrentMapFlag(duid);
+    const rooms = [];
+    const maps = [];
+    for (const map of data.maps) {
+      const names =
+        map.mapFlag === currentMapFlag
+          ? (this.segmentRoomNames && this.segmentRoomNames[duid]) || {}
+          : data.rooms[map.mapFlag];
+      // Every map is published, even one without named rooms: the Matter
+      // accessory adds a whole-floor area to each.
+      maps.push(map);
+      for (const segmentId of Object.keys(names || {}).sort((a, b) => a - b)) {
+        rooms.push({
+          mapFlag: map.mapFlag,
+          segmentId: Number(segmentId),
+          name: String(names[segmentId]),
+        });
+      }
+    }
+    if (
+      currentMapFlag === null ||
+      !maps.some((m) => m.mapFlag === currentMapFlag)
+    ) {
+      // No usable multi-map data (single-map robot, or map list not read
+      // yet): publish the loaded map's rooms alone, as before.
+      const mapFlag = currentMapFlag === null ? 0 : currentMapFlag;
+      return {
+        currentMapFlag: mapFlag,
+        maps: [{ mapFlag, name: "Map" }],
+        rooms: this.getSegmentRooms(duid).map((room) => ({ mapFlag, ...room })),
+      };
+    }
+    return { currentMapFlag, maps, rooms };
   }
 
   /**
