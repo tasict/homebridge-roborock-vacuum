@@ -176,6 +176,10 @@ class vacuum {
             );
           }
         }
+
+        if (typeof this.adapter.recordConsumables === "function") {
+          this.adapter.recordConsumables(duid, consumables);
+        }
       } else if (parameter == "get_status") {
         // current-room -> MQTT (opt-in telemetry): the only consumer of the
         // 1 Hz status tick (see startDeviceIntervals, which only creates the

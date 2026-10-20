@@ -194,6 +194,58 @@ describe("Roborock.getCleanModeCapabilities", () => {
     api.getProductAttribute = jest.fn(() => "roborock.vacuum.a187");
     expect(api.getCleanModeCapabilities("d1").waterDefault).toBe(202);
   });
+
+  it("uses slider water levels for any model with the water-slide feature bit", () => {
+    const api = createApi();
+    api.getProductAttribute = jest.fn(() => "roborock.vacuum.a306");
+    // Bit 106 of newFeatureSet: 27th hex digit from the end, value 4.
+    api.vacuums["d1"] = {
+      features: new deviceFeatures(api, 0, "4" + "0".repeat(26), "d1"),
+    };
+    expect(api.getCleanModeCapabilities("d1").waterDefault).toBe(233);
+  });
+});
+
+describe("deviceFeatures new-feature string bits", () => {
+  it("reads a bit counted from the end of the hex string", () => {
+    const adapter = { getProductAttribute: () => null };
+    const slide = new deviceFeatures(adapter, 0, "4" + "0".repeat(26), "d1");
+    const other = new deviceFeatures(adapter, 0, "b" + "0".repeat(26), "d1");
+    const short = new deviceFeatures(adapter, 0, "ffff", "d1");
+
+    expect(slide.getFeatureList().isWaterSlideModeSupported).toBe(true);
+    expect(other.getFeatureList().isWaterSlideModeSupported).toBe(false);
+    expect(short.getFeatureList().isWaterSlideModeSupported).toBe(false);
+    expect(
+      new deviceFeatures(adapter, 0, undefined, "d1").hasNewFeatureStrBit(106)
+    ).toBe(false);
+  });
+});
+
+describe("Roborock.isBatteryCharging", () => {
+  // featureSet with upper-32 bit 13 (off-peak charging) set, or not.
+  function createChargingApi(offPeak: boolean) {
+    const api = createApi();
+    api.getProductAttribute = jest.fn(() => "roborock.vacuum.a75");
+    const featureSet = offPeak ? 2 ** 32 * 2 ** 13 : 0;
+    api.vacuums["d1"] = {
+      features: new deviceFeatures(api, featureSet, "0", "d1"),
+    };
+    return api;
+  }
+
+  it("treats charge_status 0 on the charger as charging without off-peak charging", () => {
+    const api = createChargingApi(false);
+    expect(api.isBatteryCharging("d1", 0, 8)).toBe(true);
+    expect(api.isBatteryCharging("d1", 0, 5)).toBe(false);
+    expect(api.isBatteryCharging("d1", 1, 8)).toBe(true);
+  });
+
+  it("treats charge_status 0 as waiting for off-peak power when supported", () => {
+    const api = createChargingApi(true);
+    expect(api.isBatteryCharging("d1", 0, 8)).toBe(false);
+    expect(api.isBatteryCharging("d1", 1, 8)).toBe(true);
+  });
 });
 
 describe("Roborock.isCleaning", () => {

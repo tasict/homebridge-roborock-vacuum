@@ -1,45 +1,47 @@
 "use strict";
 
 const crypto = require("crypto");
-const axios = require("axios");
+const { createHttpClient } = require("./httpClient");
 const roborockAuth = require("./roborockAuth");
 
 function md5hex(str) {
   return crypto.createHash("md5").update(str).digest("hex");
 }
 
-// Build an axios instance that signs each request with the rriot Hawk
-// credentials, mirroring the signing the main plugin uses for the Roborock
-// "real" API (see roborockAPI.js initUser).
+// Client for the Roborock "real" API, signing each request with the rriot
+// Hawk credentials. Used by the plugin and the config UI.
 function createSignedApi(rriot) {
-  const api = axios.create({ baseURL: rriot.r.a, timeout: 20000 });
-  api.interceptors.request.use((config) => {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const nonce = crypto
-      .randomBytes(6)
-      .toString("base64")
-      .substring(0, 6)
-      .replace("+", "X")
-      .replace("/", "Y");
-    const url = new URL(api.getUri(config));
-    const prestr = [
-      rriot.u,
-      rriot.s,
-      nonce,
-      timestamp,
-      md5hex(url.pathname),
-      /*queryparams*/ "",
-      /*body*/ "",
-    ].join(":");
-    const mac = crypto
-      .createHmac("sha256", rriot.h)
-      .update(prestr)
-      .digest("base64");
-    config.headers["Authorization"] =
-      `Hawk id="${rriot.u}", s="${rriot.s}", ts="${timestamp}", nonce="${nonce}", mac="${mac}"`;
-    return config;
+  return createHttpClient({
+    baseURL: rriot.r.a,
+    // Fail instead of hanging when the cloud black-holes connections;
+    // otherwise the periodic refresh piles up requests every interval.
+    timeout: 20000,
+    sign: (url) => {
+      const timestamp = Math.floor(Date.now() / 1000);
+      const nonce = crypto
+        .randomBytes(6)
+        .toString("base64")
+        .substring(0, 6)
+        .replace("+", "X")
+        .replace("/", "Y");
+      const prestr = [
+        rriot.u,
+        rriot.s,
+        nonce,
+        timestamp,
+        md5hex(url.pathname),
+        /*queryparams*/ "",
+        /*body*/ "",
+      ].join(":");
+      const mac = crypto
+        .createHmac("sha256", rriot.h)
+        .update(prestr)
+        .digest("base64");
+      return {
+        Authorization: `Hawk id="${rriot.u}", s="${rriot.s}", ts="${timestamp}", nonce="${nonce}", mac="${mac}"`,
+      };
+    },
   });
-  return api;
 }
 
 // Read-only: fetch the account's devices (owned + shared) so the config UI can
@@ -93,4 +95,4 @@ async function fetchDevices({ baseURL, username, clientID, userData }) {
   return owned.concat(received);
 }
 
-module.exports = { fetchDevices };
+module.exports = { createSignedApi, fetchDevices };

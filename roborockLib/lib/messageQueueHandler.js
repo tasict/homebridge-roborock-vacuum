@@ -5,13 +5,12 @@ const requestTimeout = 10000; // 10s
 class messageQueueHandler {
   constructor(adapter) {
     this.adapter = adapter;
+    // duid -> methods whose cloud fallback was already logged at info level
+    this.loggedFallbacks = new Map();
   }
 
   async sendRequest(duid, method, params, secure = false, photo = false) {
     const remoteConnection = await this.adapter.isRemoteDevice(duid);
-    const version = await this.adapter.getRobotVersion(duid, "local");
-
-    const deviceOnline = await this.adapter.onlineChecker(duid);
     const mqttConnectionState = this.adapter.rr_mqtt_connector.isConnected();
     const localConnectionState = this.adapter.localConnector.isConnected(duid);
 
@@ -23,7 +22,9 @@ class messageQueueHandler {
       method == "service.get_net_info";
     if (!useCloudConnection && !localConnectionState && mqttConnectionState) {
       useCloudConnection = true;
-      this.adapter.log.info(
+      this.logFallback(
+        duid,
+        method,
         `Local connection unavailable for ${duid}. Falling back to cloud connection for method ${method}.`
       );
     }
@@ -38,10 +39,69 @@ class messageQueueHandler {
       this.adapter.shouldPreferCloudLocally(duid)
     ) {
       useCloudConnection = true;
-      this.adapter.log.info(
+      this.logFallback(
+        duid,
+        method,
         `Local connection for ${duid} is unresponsive. Falling back to cloud connection for method ${method}.`
       );
     }
+
+    if (useCloudConnection) {
+      return this.send(duid, method, params, true, secure, photo);
+    }
+
+    try {
+      return await this.send(duid, method, params, false, secure, photo);
+    } catch (error) {
+      // A local request that timed out or could not be written is sent once
+      // more over the cloud. A request that was never sent (device offline,
+      // no connection at all) rejects without an Error and is not retried.
+      if (
+        !(error instanceof Error) ||
+        !this.adapter.rr_mqtt_connector.isConnected()
+      ) {
+        throw error;
+      }
+      this.logFallback(
+        duid,
+        method,
+        `Local request for ${duid} failed (${error.message}). Retrying method ${method} over the cloud connection.`
+      );
+      return this.send(duid, method, params, true, secure, photo);
+    }
+  }
+
+  // Scene items: local connection only, never retried over the cloud, so a
+  // lost reply cannot start the same item twice.
+  sendLocalRequest(duid, method, params) {
+    return this.send(duid, method, params, false);
+  }
+
+  // Log a cloud fallback at info level once per method and robot until the
+  // robot answers locally again; repeats go to debug.
+  logFallback(duid, method, message) {
+    const methods = this.loggedFallbacks.get(duid) || new Set();
+    if (methods.has(method)) {
+      this.adapter.log.debug(message);
+      return;
+    }
+    methods.add(method);
+    this.loggedFallbacks.set(duid, methods);
+    this.adapter.log.info(message);
+  }
+
+  async send(
+    duid,
+    method,
+    params,
+    useCloudConnection,
+    secure = false,
+    photo = false
+  ) {
+    const version = await this.adapter.getRobotVersion(duid, "local");
+    const deviceOnline = await this.adapter.onlineChecker(duid);
+    const mqttConnectionState = this.adapter.rr_mqtt_connector.isConnected();
+    const localConnectionState = this.adapter.localConnector.isConnected(duid);
 
     if (!useCloudConnection && version == "L01") {
       try {
@@ -128,11 +188,11 @@ class messageQueueHandler {
             if (typeof this.adapter.recordMethodSuccess === "function") {
               this.adapter.recordMethodSuccess(duid, method);
             }
-            if (
-              !useCloudConnection &&
-              typeof this.adapter.recordLocalSuccess === "function"
-            ) {
-              this.adapter.recordLocalSuccess(duid);
+            if (!useCloudConnection) {
+              this.loggedFallbacks.delete(duid);
+              if (typeof this.adapter.recordLocalSuccess === "function") {
+                this.adapter.recordLocalSuccess(duid);
+              }
             }
             if (
               useCloudConnection &&
@@ -148,6 +208,8 @@ class messageQueueHandler {
             resolve: trackedResolve,
             reject,
             timeout,
+            // Answered with protocol 300/301 after an "ok" acknowledgement.
+            awaitsPayload: secure || photo,
           });
 
           if (useCloudConnection) {
@@ -162,7 +224,14 @@ class messageQueueHandler {
             lengthBuffer.writeUInt32BE(roborockMessage.length, 0);
 
             const fullMessage = Buffer.concat([lengthBuffer, roborockMessage]);
-            this.adapter.localConnector.sendMessage(duid, fullMessage);
+            try {
+              this.adapter.localConnector.sendMessage(duid, fullMessage);
+            } catch (error) {
+              this.adapter.clearTimeout(timeout);
+              this.adapter.pendingRequests.delete(messageID);
+              reject(error);
+              return;
+            }
             // this.adapter.log.debug(`sent fullMessage: ${fullMessage.toString("hex")}`);
             this.adapter.log.debug(
               `Sent payload for ${duid} with ${payload} using local connection`
@@ -177,7 +246,7 @@ class messageQueueHandler {
     } else {
       this.adapter.catchError(
         "Failed to build buildRoborockMessage!",
-        "function sendRequest",
+        "function send",
         duid
       );
     }

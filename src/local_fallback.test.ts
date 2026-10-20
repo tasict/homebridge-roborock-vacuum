@@ -456,7 +456,7 @@ describe("Roborock cloud re-login after a session-less start", () => {
     api.ensureAuthSignature = jest.fn().mockResolvedValue({ k: "k", s: "s" });
 
     login.mockRejectedValueOnce(
-      Object.assign(new Error("ECONNRESET"), { isAxiosError: true })
+      Object.assign(new Error("ECONNRESET"), { isRequestError: true })
     );
     expect(await api.getUserData(api.loginApi)).toBeNull();
     expect(api.loginRetryable).toBe(true);

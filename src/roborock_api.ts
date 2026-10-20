@@ -1,7 +1,7 @@
 /**
  * Typed surface of the JavaScript Roborock API (roborockLib/roborockAPI.js)
  * that this plugin actually consumes. The implementation is still untyped
- * legacy code loaded via require(); this interface exists so a rename or
+ * legacy CommonJS code; this interface exists so a rename or
  * signature change over there breaks the build here instead of HomeKit at
  * runtime. Keep it in sync with roborockAPI.js when the surface changes.
  */
@@ -60,12 +60,18 @@ export interface RoborockApi {
   getVacuumDeviceData(duid: string): RoborockDevice | undefined;
   getVacuumDeviceInfo(duid: string, property: string): unknown;
   getVacuumDeviceStatus(duid: string, property: string): number | string;
+  isLocallyConnected(duid: string): boolean;
   getProductAttribute(duid: string, attribute: string): string | null;
   getSegmentRooms(duid: string): RoborockSegmentRoom[];
   getScenesForDevice(duid: string): RoborockScene[];
   isDockWashSupported(duid: string): boolean;
   getCleanModeCapabilities(duid: string): CleanModeCapabilities;
   isCleaning(state: number | string): boolean;
+  isBatteryCharging(
+    duid: string,
+    chargeStatus: number | string,
+    state: number | string | undefined
+  ): boolean;
   getTranslation(key: string): string;
 
   // Commands

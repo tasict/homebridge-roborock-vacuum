@@ -1,7 +1,6 @@
 "use strict";
 
 const crypto = require("crypto");
-const Parser = require("binary-parser").Parser;
 const net = require("net");
 const dgram = require("dgram");
 
@@ -70,28 +69,27 @@ function randomNonce() {
   return 10000 + Math.floor(Math.random() * 22768);
 }
 
-const localMessageParser = new Parser()
-  .endianess("big")
-  .string("version", {
-    length: 3,
-  })
-  .uint32("seq")
-  .uint16("protocol")
-  .uint16("payloadLen")
-  .buffer("payload", {
-    length: "payloadLen",
-  })
-  .uint32("crc32");
+// Encrypted payload of a UDP discovery broadcast. Layout (big-endian):
+// version(3) seq(4) protocol(2) payloadLen(2) payload crc32(4).
+function broadcastPayload(msg) {
+  const payloadLen = msg.readUInt16BE(9);
+  if (msg.length < 15 + payloadLen) {
+    throw new RangeError(`Truncated broadcast (${msg.length} bytes)`);
+  }
+  return msg.subarray(11, 11 + payloadLen);
+}
 
-const shortMessageParser = new Parser()
-  .endianess("big")
-  .string("version", {
-    length: 3,
-  })
-  .uint32("seq")
-  .uint32("random")
-  .uint32("timestamp")
-  .uint16("protocol");
+// Header-only frame (big-endian): version(3) seq(4) random(4) timestamp(4)
+// protocol(2).
+function parseShortMessage(buffer) {
+  return {
+    version: buffer.toString("utf8", 0, 3),
+    seq: buffer.readUInt32BE(3),
+    random: buffer.readUInt32BE(7),
+    timestamp: buffer.readUInt32BE(11),
+    protocol: buffer.readUInt16BE(15),
+  };
+}
 
 class localConnector {
   constructor(adapter) {
@@ -242,7 +240,7 @@ class localConnector {
               }
             } else {
               try {
-                const shortMessage = shortMessageParser.parse(currentBuffer);
+                const shortMessage = parseShortMessage(currentBuffer);
                 // HELLO_RESPONSE (protocol 1) echoing our seq=1 HELLO; its
                 // random field is the ack_nonce.
                 if (
@@ -329,17 +327,33 @@ class localConnector {
       setTimeout(async () => {
         this.reconnectTimeouts.delete(duid);
         // The IP captured at startup goes stale when DHCP hands the device a
-        // new address; re-query it over the cloud before dialing.
+        // new address; look it up again (LAN first, then cloud) before dialing.
         const refreshedIp = await this.refreshLocalIp(duid);
         await this.createClient(duid, refreshedIp || ip);
       }, RECONNECT_DELAY)
     );
   }
 
-  // Re-query the device's current local IP over the cloud channel
-  // (get_network_info updates adapter.localDevices). Rate-limited per device;
+  // Find the device's current local IP: UDP discovery on the LAN first, then
+  // get_network_info over the cloud channel (which updates
+  // adapter.localDevices). The cloud lookup is rate-limited per device;
   // returns the freshest known IP or undefined when none is available.
   async refreshLocalIp(duid) {
+    const discovered = await this.discoverLocalDevices().catch((error) => {
+      this.adapter.log.debug(`UDP discovery failed: ${error.message}`);
+      return {};
+    });
+    const discoveredIp = discovered[duid];
+    if (discoveredIp) {
+      if (this.adapter.localDevices[duid] !== discoveredIp) {
+        this.adapter.localDevices[duid] = discoveredIp;
+        if (typeof this.adapter.persistLocalDevices === "function") {
+          this.adapter.persistLocalDevices();
+        }
+      }
+      return discoveredIp;
+    }
+
     const now = Date.now();
     const lastRefresh = this.lastIpRefresh.get(duid) || 0;
     if (now - lastRefresh >= IP_REFRESH_MIN_INTERVAL) {
@@ -583,6 +597,17 @@ class localConnector {
     await handshakePromise;
   }
 
+  // One UDP discovery at a time: robots reconnecting together share it
+  // instead of competing for the discovery port.
+  discoverLocalDevices() {
+    if (!this.discovery) {
+      this.discovery = this.getLocalDevices().finally(() => {
+        this.discovery = null;
+      });
+    }
+    return this.discovery;
+  }
+
   async getLocalDevices() {
     return new Promise((resolve, reject) => {
       const devices = {};
@@ -601,9 +626,8 @@ class localConnector {
 
       server.on("message", (msg) => {
         try {
-          const parsedMessage = localMessageParser.parse(msg);
           const decodedMessage = this.decryptECB(
-            parsedMessage.payload,
+            broadcastPayload(msg),
             BROADCAST_TOKEN
           ); // this might be decryptCBC for A01. Haven't checked this yet
 
@@ -642,10 +666,15 @@ class localConnector {
       server.on("error", (error) => {
         // Port 58866 may already be taken by another Roborock integration on
         // the same host. Discovery is best-effort (get_network_info provides
-        // IPs too), so a bind failure must not abort device creation.
-        this.adapter.log.warn(
-          `UDP discovery unavailable (${error.message}). Continuing without it; local IPs will come from the cloud instead.`
-        );
+        // IPs too), so a bind failure must not abort device creation. It is
+        // retried on every reconnect, so only the first failure is a warning.
+        const message = `UDP discovery unavailable (${error.message}). Continuing without it; local IPs will come from the cloud instead.`;
+        if (this.udpDiscoveryWarned) {
+          this.adapter.log.debug(message);
+        } else {
+          this.udpDiscoveryWarned = true;
+          this.adapter.log.warn(message);
+        }
         closeServer();
         if (this.localDevicesTimeout) {
           this.adapter.clearTimeout(this.localDevicesTimeout);

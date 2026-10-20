@@ -42,6 +42,11 @@ function makeRoborockAPI(overrides: Record<string, unknown> = {}) {
     setCleanModeParameters: jest.fn().mockResolvedValue(undefined),
     getVacuumDeviceData: jest.fn().mockReturnValue({ deviceStatus: {} }),
     getVacuumDeviceStatus: jest.fn().mockReturnValue(""),
+    // A robot without off-peak charging (see Roborock.isBatteryCharging).
+    isBatteryCharging: jest.fn(
+      (_duid: string, chargeStatus: number, state: number) =>
+        chargeStatus !== 0 || state === 8
+    ),
     getSegmentRooms: jest.fn().mockReturnValue(ROOMS),
     getCleanModeCapabilities: jest.fn().mockReturnValue({
       fanOff: 105,
@@ -195,6 +200,7 @@ describe("RoborockVacuumMatterAccessory", () => {
     it.each([
       [{ charge_status: 0, state: 5, battery: 80 }, 3], // Not charging
       [{ charge_status: 1, state: 8, battery: 80 }, 1], // Charging
+      [{ charge_status: 0, state: 8, battery: 80 }, 1], // Charging, no off-peak
       [{ charge_status: 1, state: 8, battery: 100 }, 2], // Full
       [{ state: 8, battery: 80 }, 1], // No charge_status: charging state
       [{ state: 100 }, 2], // No charge_status: fully charged state

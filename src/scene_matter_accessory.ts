@@ -11,7 +11,6 @@
  */
 
 import type { API, Logger } from "homebridge";
-import { MatterStatus } from "homebridge";
 import { BaseMatterAccessory } from "./base_matter_accessory";
 import { RoborockApi } from "./roborock_api";
 
@@ -77,12 +76,11 @@ export class RoborockSceneMatterAccessory extends BaseMatterAccessory {
   private async handleOn(): Promise<void> {
     this.logInfo(`Executing scene ${this.sceneId}`);
 
-    try {
-      await this.roborockAPI.executeScene({ val: this.sceneId });
-    } catch (error) {
-      this.logError("Failed to execute scene:", error);
-      throw new MatterStatus.Failure("Failed to execute scene");
-    }
+    // Not awaited: a local run waits for the robot to accept its first step,
+    // which must not hold up the controller.
+    this.roborockAPI
+      .executeScene({ val: this.sceneId })
+      .catch((error) => this.logError("Failed to execute scene:", error));
 
     setTimeout(() => {
       this.updateState("onOff", { onOff: false }).catch((err) =>

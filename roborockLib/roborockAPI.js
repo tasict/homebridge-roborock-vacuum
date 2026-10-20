@@ -3,10 +3,10 @@
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const axios = require("axios");
 const crypto = require("crypto");
 
 const roborockAuth = require("./lib/roborockAuth");
+const roborockHome = require("./lib/roborockHome");
 
 const rrLocalConnector = require("./lib/localConnector").localConnector;
 const roborock_mqtt_connector =
@@ -16,6 +16,7 @@ const vacuum_class = require("./lib/vacuum").vacuum;
 const deviceFeatures = require("./lib/deviceFeatures").deviceFeatures;
 const messageQueueHandler =
   require("./lib/messageQueueHandler").messageQueueHandler;
+const sceneRunner = require("./lib/sceneRunner").sceneRunner;
 const mqtt = require("mqtt");
 
 // Schema ids of the status fields in spontaneous status broadcasts
@@ -30,16 +31,24 @@ const DPS_STATUS_FIELDS = {
   133: "charge_status",
 };
 
-function md5hex(str) {
-  return crypto.createHash("md5").update(str).digest("hex");
-}
-
 // Dock types whose station cannot wash the mop: 0 = plain charging dock,
 // 1 and 5 = auto-empty only. Every other dock code (2, 3, 6-40 and future
 // generations) washes the mop, so the gate is membership in this small
 // exception set rather than an ever-growing wash-capable list
 // (see deviceFeatures.processDockType).
 const NON_MOP_WASHING_DOCK_TYPES = [0, 1, 5];
+
+// Rated consumable life in hours, as the Roborock app uses it. Remaining life
+// is computed from get_consumable work times; a consumable without a rated
+// life here keeps the HomeData snapshot. A model with other values gets its
+// own entry.
+const CONSUMABLE_LIFE_HOURS = {
+  default: { main_brush: 300, side_brush: 200, filter: 150 },
+};
+
+// get_status interval while a robot is cleaning, returning or docking, or
+// while the cloud push channel is down.
+const ACTIVE_STATUS_INTERVAL = 15 * 1000;
 
 // Bundled i18n catalogs, loaded statically so translation lookup never
 // hands a computed path to the module loader.
@@ -112,6 +121,7 @@ class Roborock {
     this.message = new rrMessage(this);
 
     this.messageQueueHandler = new messageQueueHandler(this);
+    this.sceneRunner = new sceneRunner(this);
 
     this.pendingRequests = new Map();
 
@@ -202,15 +212,16 @@ class Roborock {
 
   // State ids that are mirrored to disk so they survive a restart: the cloud
   // session/client id, and the home data (device list + local keys), its
-  // home id and the devices' last LAN addresses, which let the plugin start
-  // over the LAN when the cloud is down.
+  // home id, the devices' last LAN addresses and the scene list, which let
+  // the plugin start over the LAN when the cloud is down.
   isPersistedStateId(id) {
     return (
       id == "UserData" ||
       id == "clientID" ||
       id == "HomeData" ||
       id == "HomeId" ||
-      id == "LocalDevices"
+      id == "LocalDevices" ||
+      id == "Scenes"
     );
   }
 
@@ -589,9 +600,9 @@ class Roborock {
 
       this.log.warn(
         "Roborock cloud is unreachable - starting in LOCAL-ONLY mode using " +
-          "the last cached device list. Commands are sent over the LAN; " +
-          "cloud features (scenes, push updates) resume automatically once " +
-          "the cloud is reachable again."
+          "the last cached device and scene lists. Commands and scenes run " +
+          "over the LAN; cloud features (push updates, scene list changes) " +
+          "resume automatically once the cloud is reachable again."
       );
     }
 
@@ -620,48 +631,8 @@ class Roborock {
   setupCloudApi(userdata) {
     this.userData = userdata;
     this.loginApi.defaults.headers.common["Authorization"] = userdata.token;
-    const rriot = userdata.rriot;
 
-    this.api = axios.create({
-      baseURL: rriot.r.a,
-      // Fail instead of hanging when the cloud black-holes connections;
-      // otherwise the periodic refresh piles up requests every interval.
-      timeout: 20000,
-    });
-    this.api.interceptors.request.use((config) => {
-      try {
-        const timestamp = Math.floor(Date.now() / 1000);
-        const nonce = crypto
-          .randomBytes(6)
-          .toString("base64")
-          .substring(0, 6)
-          .replace("+", "X")
-          .replace("/", "Y");
-        let url;
-        if (this.api) {
-          url = new URL(this.api.getUri(config));
-          const prestr = [
-            rriot.u,
-            rriot.s,
-            nonce,
-            timestamp,
-            md5hex(url.pathname),
-            /*queryparams*/ "",
-            /*body*/ "",
-          ].join(":");
-          const mac = crypto
-            .createHmac("sha256", rriot.h)
-            .update(prestr)
-            .digest("base64");
-
-          config.headers["Authorization"] =
-            `Hawk id="${rriot.u}", s="${rriot.s}", ts="${timestamp}", nonce="${nonce}", mac="${mac}"`;
-        }
-      } catch (error) {
-        this.log.error("Failed to initialize API. Error: " + error);
-      }
-      return config;
-    });
+    this.api = roborockHome.createSignedApi(userdata.rriot);
   }
 
   // Start (or restart) the cloud MQTT client for a session. Any previous
@@ -833,6 +804,16 @@ class Roborock {
       : {};
   }
 
+  // The scene list cached by getScenes, or null when none is cached for this
+  // account.
+  loadCachedScenes() {
+    const cached = this.getStateAsync("Scenes");
+    if (!cached || cached.account !== this.config.username) {
+      return null;
+    }
+    return cached.val && Array.isArray(cached.val.result) ? cached.val : null;
+  }
+
   persistLocalDevices() {
     if (Object.keys(this.localDevices).length === 0) {
       return; // never replace a useful cache with nothing
@@ -932,6 +913,10 @@ class Roborock {
       () => this.updateHomeData(this.homeId),
       this.updateInterval * 1000
     );
+    // The cached scene list serves a local-only start and a failed scene
+    // fetch; a fresh online start replaces it right below.
+    this.scenesData = this.loadCachedScenes();
+
     // A fresh online start pulls once more to load scenes and reconcile
     // intervals. In local-only mode the cloud is down, so defer to the interval
     // instead of blocking startup on a call that will fail.
@@ -1059,7 +1044,7 @@ class Roborock {
       // login must never be repeated every interval.
       this.loginRetryable = !!(
         error &&
-        error.isAxiosError &&
+        error.isRequestError &&
         (!error.response || error.response.status >= 500)
       );
       if (this.loginRetryable) {
@@ -1263,6 +1248,14 @@ class Roborock {
       );
     }
 
+    if (!vacuum.activeStatusIntervalHandle) {
+      vacuum.activeStatusIntervalHandle = this.setInterval(
+        this.pollActiveStatus.bind(this),
+        ACTIVE_STATUS_INTERVAL,
+        duid
+      );
+    }
+
     // The 1 Hz status tick only serves the opt-in current-room MQTT
     // telemetry (its own seconds-based gating lives in vacuum.getParameter).
     // Without that feature the interval would fire 86400 no-ops per device
@@ -1294,16 +1287,70 @@ class Roborock {
       this.clearInterval(vacuum.getStatusIntervalHandle);
       vacuum.getStatusIntervalHandle = null;
     }
+
+    if (vacuum.activeStatusIntervalHandle) {
+      this.clearInterval(vacuum.activeStatusIntervalHandle);
+      vacuum.activeStatusIntervalHandle = null;
+    }
   }
 
+  // Short-interval get_status over the local connection while the robot is
+  // cleaning, returning or docking, or while cloud pushes are unavailable.
+  // Idle robots with a working push channel wait for the regular poll.
+  async pollActiveStatus(duid) {
+    const vacuum = this.vacuums[duid];
+    if (!vacuum || vacuum.activeStatusPollInFlight) {
+      return;
+    }
+    if (
+      !this.isLocallyConnected(duid) ||
+      (this.rr_mqtt_connector.isConnected() &&
+        !this.isCleaning(this.getVacuumDeviceStatus(duid, "state")))
+    ) {
+      return;
+    }
+
+    vacuum.activeStatusPollInFlight = true;
+    try {
+      await this.pollStatus(duid);
+    } finally {
+      vacuum.activeStatusPollInFlight = false;
+    }
+  }
+
+  // Run a scene over the local connection when every item can run there,
+  // otherwise (or when its first item does not start) in the cloud. A new
+  // scene drops the remaining items of a local run on the same robots.
   async executeScene(sceneID) {
-    if (this.api) {
-      try {
-        await this.api.post(`user/scene/${sceneID.val}/execute`);
-      } catch (error) {
-        if (!(await this.handleApiUnauthorized(error, "executeScene"))) {
-          this.catchError(error.stack, "executeScene");
-        }
+    const scene = ((this.scenesData && this.scenesData.result) || []).find(
+      (scene) => `${scene.id}` === `${sceneID.val}`
+    );
+    if (scene) {
+      for (const duid of this.sceneRunner.targets(scene)) {
+        this.sceneRunner.cancel(duid);
+      }
+      const items = this.sceneRunner.localItems(scene);
+      if (items && (await this.sceneRunner.start(scene, items))) {
+        return;
+      }
+    }
+
+    await this.executeSceneInCloud(sceneID.val);
+  }
+
+  async executeSceneInCloud(sceneId) {
+    if (!this.api) {
+      this.log.warn(
+        `Scene ${sceneId} cannot run: it needs the Roborock cloud, which is not connected.`
+      );
+      return;
+    }
+
+    try {
+      await this.api.post(`user/scene/${sceneId}/execute`);
+    } catch (error) {
+      if (!(await this.handleApiUnauthorized(error, "executeScene"))) {
+        this.catchError(error.stack, "executeScene");
       }
     }
   }
@@ -1349,8 +1396,15 @@ class Roborock {
       const homeId = await this.getHomeID();
       const response = await this.api.get(`user/scene/home/${homeId}`);
 
-      // Store scenes data locally
+      // Store scenes data locally, and on disk for a local-only start.
       this.scenesData = response.data;
+      if (response.data && Array.isArray(response.data.result)) {
+        await this.setStateAsync("Scenes", {
+          val: response.data,
+          ack: true,
+          account: this.config.username,
+        });
+      }
 
       return response.data;
     } catch (error) {
@@ -1629,6 +1683,7 @@ class Roborock {
       this.clearInterval(this.homedataInterval);
     }
 
+    this.sceneRunner.cancelAll();
     this.localConnector.shutdown();
     this.rr_mqtt_connector.disconnectClient();
 
@@ -2300,7 +2355,10 @@ class Roborock {
     }
   }
 
+  // A stop or dock from Apple Home takes over the robot: drop the remaining
+  // items of a local scene run on it.
   async app_stop(duid) {
+    this.sceneRunner.cancel(duid);
     await this.startCommand(duid, "app_stop", null);
   }
 
@@ -2309,6 +2367,7 @@ class Roborock {
   }
 
   async app_charge(duid) {
+    this.sceneRunner.cancel(duid);
     await this.startCommand(duid, "app_charge", null);
   }
 
@@ -2388,23 +2447,28 @@ class Roborock {
    */
   getCleanModeCapabilities(duid) {
     let mopSupported = true;
+    let waterSlide = false;
 
     try {
       const features = this.vacuums[duid]?.features?.getFeatureList?.();
       if (features && typeof features.isWaterBoxSupported === "boolean") {
         mopSupported = features.isWaterBoxSupported;
       }
+      waterSlide = !!(features && features.isWaterSlideModeSupported);
     } catch (error) {
       this.log.debug(`getCleanModeCapabilities: ${error}`);
     }
 
-    // The Qrevo Edge 2 (a298) does not use the classic 200-203 water levels:
-    // it keeps 200 = Off but replaces 201-203 with banded levels 221-250,
-    // so writing the classic default 202 would be rejected by the device.
-    // 233 is the middle ("Medium") band. The sibling Qrevo Edge (a187) still
-    // uses the classic values.
+    // Water-slide models (the Qrevo Edge 2 / a298, the P30 Pro / a306, ...)
+    // do not use the classic 200-203 water levels: they keep 200 = Off but
+    // report and accept 220 + a slider position (1-30), so writing the
+    // classic default 202 would be rejected by the device. 233 lies in the
+    // app's "Medium" range. The feature bit finds them; the a298 is also
+    // listed by model in case its home data lacks the bit. The sibling
+    // Qrevo Edge (a187) still uses the classic values.
     const model = this.getProductAttribute(duid, "model");
-    const usesBandedWaterLevels = model === "roborock.vacuum.a298";
+    const usesBandedWaterLevels =
+      waterSlide || model === "roborock.vacuum.a298";
 
     return {
       fanOff: 105,
@@ -2413,6 +2477,21 @@ class Roborock {
       waterDefault: usesBandedWaterLevels ? 233 : 202,
       mopSupported: mopSupported,
     };
+  }
+
+  // Whether the battery is charging, given a known charge_status. On robots
+  // with off-peak charging, 0 while on the charger (state 8) means "waiting
+  // for off-peak power"; other robots report 0 while they charge, too.
+  isBatteryCharging(duid, chargeStatus, state) {
+    if (Number(chargeStatus) !== 0) {
+      return true;
+    }
+    if (Number(state) !== 8) {
+      return false;
+    }
+
+    const features = this.vacuums[duid]?.features?.getFeatureList?.();
+    return !(features && features.isSupportedValleyElectricity);
   }
 
   async getStatus(duid) {
@@ -2467,17 +2546,17 @@ class Roborock {
   // devices use a different method set). The HomeData deviceStatus snapshot
   // is a cloud-side copy that can lag behind the device, and older products'
   // schemas lack fields such as charge_status. python-roborock polls
-  // get_status for V1 status as well.
+  // get_status for V1 status as well. Returns whether the status was read.
   async pollStatus(duid) {
     if (this.getVacuumDeviceInfo(duid, "pv") !== "1.0") {
-      return;
+      return false;
     }
 
     if (!this.shouldPollMethod(duid, "get_status")) {
       this.log.debug(
         `Skipping get_status for ${duid}; backing off after repeated timeouts.`
       );
-      return;
+      return false;
     }
 
     try {
@@ -2486,9 +2565,12 @@ class Roborock {
         "get_status",
         []
       );
-      this.recordLiveStatus(duid, Array.isArray(result) ? result[0] : result);
+      const status = Array.isArray(result) ? result[0] : result;
+      this.recordLiveStatus(duid, status);
+      return !!status && typeof status === "object";
     } catch (error) {
       this.catchError(error, "get_status", duid);
+      return false;
     }
   }
 
@@ -2528,6 +2610,38 @@ class Roborock {
     });
     await this.pollStatus(duid);
     return true;
+  }
+
+  // Remaining consumable life from get_consumable work times (seconds),
+  // rounded like the Roborock app. Recorded as live status, so it is served
+  // before the HomeData snapshot, and pushed to the accessories, which do not
+  // see a HomeData refresh while the cloud is down.
+  recordConsumables(duid, consumables) {
+    if (!consumables || typeof consumables !== "object") {
+      return;
+    }
+
+    const model = this.getProductAttribute(duid, "model");
+    const ratedHours =
+      CONSUMABLE_LIFE_HOURS[model] || CONSUMABLE_LIFE_HOURS.default;
+    const life = {};
+    for (const [name, hours] of Object.entries(ratedHours)) {
+      const workTime = consumables[`${name}_work_time`];
+      if (typeof workTime === "number") {
+        life[`${name}_life`] = Math.max(
+          0,
+          Math.round(100 - (workTime / (hours * 3600)) * 100)
+        );
+      }
+    }
+    if (Object.keys(life).length === 0) {
+      return;
+    }
+
+    this.recordLiveStatus(duid, life);
+    if (this.deviceNotify) {
+      this.deviceNotify("LocalMessage", life, duid);
+    }
   }
 
   // Record named status fields (a get_status result) as live status.

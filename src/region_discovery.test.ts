@@ -1,12 +1,13 @@
-jest.mock("axios", () => ({
-  post: jest.fn(),
-  create: jest.fn(),
+const mockPost = jest.fn();
+jest.mock("../roborockLib/lib/httpClient", () => ({
+  createHttpClient: () => ({
+    post: (...args: unknown[]) => mockPost(...args),
+  }),
 }));
 
-const axios = require("axios");
 const roborockAuth = require("../roborockLib/lib/roborockAuth");
 
-const post = axios.post as jest.Mock;
+const post = mockPost;
 
 describe("roborockAuth.discoverAccountRegion", () => {
   beforeEach(() => {

@@ -1,7 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
-const axios = require("axios");
+const { createHttpClient } = require("./httpClient");
 
 const API_V3_SIGN = "api/v3/key/sign";
 const API_V4_LOGIN_CODE = "api/v4/auth/email/login/code";
@@ -70,13 +70,10 @@ function isRoborockHost(baseURL) {
 async function discoverAccountRegion(email, log) {
   for (const host of DISCOVERY_BASE_URLS) {
     try {
-      const res = await axios.post(
+      const res = await createHttpClient({ timeout: 10000 }).post(
         `https://${host}/${API_V1_GET_URL_BY_EMAIL}`,
         null,
-        {
-          params: { email, needtwostepauth: "false" },
-          timeout: 10000,
-        }
+        { params: { email, needtwostepauth: "false" } }
       );
       const body = res && res.data;
       if (!body || body.code !== 200 || !body.data || !body.data.url) {
@@ -131,7 +128,7 @@ function encryptPassword(password, k) {
 }
 
 function createLoginApi({ baseURL, username, clientID, language }) {
-  return axios.create({
+  return createHttpClient({
     baseURL: `https://${normalizeBaseURL(baseURL)}`,
     // Fail with a real error instead of hanging: the config UI budgets 60s
     // per action, and login/2FA-verify chain two requests through this client.

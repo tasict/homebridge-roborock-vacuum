@@ -877,7 +877,11 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
       this.lastState === ROBOROCK_STATE_FULLY_CHARGED;
     let charging: boolean;
     if (this.lastChargeStatus !== undefined) {
-      charging = this.lastChargeStatus !== 0;
+      charging = this.roborockAPI.isBatteryCharging(
+        this.duid,
+        this.lastChargeStatus,
+        this.lastState
+      );
     } else if (this.lastState !== undefined) {
       charging = onCharger;
     } else {

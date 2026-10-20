@@ -31,7 +31,7 @@
     "demo_hint": "Try it. Pick rooms, or none for the whole home. Room cleaning needs Matter and iOS 18.4 or later.",
     "map_alt": "A floor plan with four rooms. The vacuum leaves its dock, cleans the chosen rooms and returns.",
     "local_h2": "Keeps working when the cloud doesn't",
-    "local_p": "The Roborock cloud is only needed to sign in and to read your device list. Commands go straight to the vacuum over your home network, and if the cloud is unreachable when Homebridge starts, the plugin starts from its saved device list. Cloud features such as scenes come back by themselves once the cloud answers.",
+    "local_p": "The Roborock cloud is only needed to sign in and to read your device list. Commands go straight to the vacuum over your home network, and if the cloud is unreachable when Homebridge starts, the plugin starts from its saved device list. Status, consumables and scenes are read and run locally too, with the cloud only as the fallback.",
     "flow": [
       ["Home app", "iPhone, iPad, Mac or HomePod"],
       ["Homebridge", "Runs the plugin"],
@@ -173,7 +173,7 @@
     "demo_hint": "試試看：選擇房間，或不選就打掃全屋。分房清掃需要 Matter 與 iOS 18.4 以上。",
     "map_alt": "有四個房間的平面圖。掃地機器人離開充電座，打掃選定的房間後返回。",
     "local_h2": "雲端斷線，照樣能用",
-    "local_p": "Roborock 雲端只在登入和讀取裝置清單時需要。控制指令會透過家裡的網路直接送到掃地機器人；如果 Homebridge 啟動時連不上雲端，外掛會用先前儲存的裝置清單啟動。場景等雲端功能會在雲端恢復後自動回來。",
+    "local_p": "Roborock 雲端只在登入和讀取裝置清單時需要。控制指令會透過家裡的網路直接送到掃地機器人；如果 Homebridge 啟動時連不上雲端，外掛會用先前儲存的裝置清單啟動。狀態、耗材和場景也優先在本地讀取與執行，雲端只作為備援。",
     "flow": [
       ["「家庭」App", "iPhone、iPad、Mac 或 HomePod"],
       ["Homebridge", "執行這個外掛"],
@@ -312,7 +312,7 @@
     "demo_hint": "試してみてください。部屋を選ぶか、選ばなければ家全体を掃除します。部屋ごとの掃除には Matter と iOS 18.4 以降が必要です。",
     "map_alt": "4 部屋の間取り図。掃除機がドックを出て、選んだ部屋を掃除して戻ります。",
     "local_h2": "クラウドが止まっても使える",
-    "local_p": "Roborock のクラウドが必要なのは、サインインとデバイス一覧の取得のときだけです。操作は家のネットワーク経由で掃除機に直接届きます。Homebridge の起動時にクラウドにつながらなくても、保存済みのデバイス一覧で起動し、シーンなどのクラウド機能はクラウドの復旧後に自動で戻ります。",
+    "local_p": "Roborock のクラウドが必要なのは、サインインとデバイス一覧の取得のときだけです。操作は家のネットワーク経由で掃除機に直接届きます。Homebridge の起動時にクラウドにつながらなくても、保存済みのデバイス一覧で起動し、状態、消耗品、シーンもローカルで読み取り・実行し、クラウドは予備としてのみ使います。",
     "flow": [
       ["「ホーム」App", "iPhone、iPad、Mac、HomePod"],
       ["Homebridge", "プラグインを実行"],

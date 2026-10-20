@@ -130,6 +130,18 @@ class deviceFeatures {
 
   isSupportedDrying() {}
 
+  // A bit of the hex new-feature string (HomeData newFeatureSet), counted
+  // from its last character: bit n is bit n % 4 of the hex digit n / 4 from
+  // the end.
+  hasNewFeatureStrBit(bit) {
+    const str = typeof this.featuresStr === "string" ? this.featuresStr : "";
+    const nibble = parseInt(
+      str.charAt(str.length - 1 - Math.floor(bit / 4)),
+      16
+    );
+    return Number.isFinite(nibble) && !!((nibble >> bit % 4) & 1);
+  }
+
   getFeatureList() {
     const robotModel = this.adapter.getProductAttribute(this.duid, "model");
 
@@ -138,6 +150,13 @@ class deviceFeatures {
         ((this.features / Math.pow(2, 32)) >> 5) & 1,
       isDustCollectionSettingSupported: !!(33554432 & this.features),
       isSupportedDrying: ((this.features / Math.pow(2, 32)) >> 15) & 1,
+      // Off-peak ("valley electricity") charging: the robot may wait on the
+      // dock for cheaper power. Bit 13 of the upper 32 bits.
+      isSupportedValleyElectricity:
+        ((this.features / Math.pow(2, 32)) >> 13) & 1,
+      // Water flow set with a 30-step slider (220 + position) instead of the
+      // classic 201-203 levels. Bit 106 of the new-feature string.
+      isWaterSlideModeSupported: this.hasNewFeatureStrBit(106),
       isShakeMopSetSupported: !!(262144 & this.features),
       isVideoMonitorSupported: !!(8 & this.features), // I tested this for S7 MaxV, S8 MaxV
       isVideoSettingSupported: !!(64 & this.features), // I tested this for S7 MaxV, S8 MaxV

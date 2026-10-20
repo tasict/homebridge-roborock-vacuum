@@ -26,7 +26,7 @@ This plugin is inspired by and adapted from the [ioBroker.roborock](https://gith
 - **Consumables** (HomeKit) — remaining life of the filter, main brush and side brush, with a change reminder at 5% or less.
 - **Clear errors from the settings page** — an error the vacuum or dock keeps reporting after you fixed the cause can be cleared without the Roborock app. See [Clearing device errors](#clearing-device-errors).
 - **Matter (Beta)** — publish a vacuum as a native Matter robot vacuum, with room cleaning and clean modes. See [Matter support (Beta)](#matter-support-beta).
-- **Works through cloud outages** — local control over the LAN, and a local-only start when the Roborock cloud is unreachable. See [Cloud outages and local-only mode](#cloud-outages-and-local-only-mode).
+- **Local first, works through cloud outages** — commands, status, consumables and scenes go over the LAN, with the cloud as the fallback, and the plugin starts in local-only mode when the Roborock cloud is unreachable. See [Cloud outages and local-only mode](#cloud-outages-and-local-only-mode).
 - **Current room → MQTT** (optional) — publish the room being cleaned to your MQTT broker. See [Current Room → MQTT](#current-room--mqtt-optional-telemetry).
 - **Per-device choice** — publish each vacuum over HomeKit or Matter, or skip it (for example a vacuum shared from another home).
 
@@ -124,20 +124,43 @@ Pairing is one-time per node — switching a device between HAP and Matter later
 
 ## Cloud outages and local-only mode
 
-Roborock's cloud is required to log in and to read your device list, but it is
-not required to _control_ a vacuum: once the plugin knows a device's local key,
-it talks to the robot directly over your LAN.
+Roborock's cloud is required to log in and to read your device and scene
+lists, but not to _control_ a vacuum: once the plugin knows a device's local
+key, it talks to the robot directly over your LAN. Everything the robot can
+answer locally goes over the LAN first, and the cloud is only the fallback:
 
-The plugin caches the device list, the local keys and each vacuum's last known
-LAN address on disk (owner-readable only) after every successful cloud
-refresh. If the Roborock cloud is unreachable when Homebridge starts, the
-plugin falls back to that cache and starts in **local-only mode**:
+- **Commands** (start, stop, dock, dock wash, rooms) go over the LAN. A
+  command that gets no local answer is sent once more through the cloud.
+- **Status** (state, battery, charging, errors) is read from the robot every
+  15 seconds while it is cleaning, returning or docking, and while the cloud
+  push channel is down; otherwise on the regular refresh.
+- **Consumables** (filter, main and side brush) are computed from the
+  robot's own work times, like the Roborock app does; the cloud's copy is
+  used only when the robot does not report them.
+- **Reachability**: a vacuum with a working local connection is never shown
+  as "Not Responding", whatever the cloud reports.
+- **Scenes** whose steps are all commands for vacuums connected over the LAN
+  run locally, one step after the other: the next step starts once the
+  vacuum is back on the dock and the dock has finished emptying and washing.
+  Stopping or docking the vacuum from Apple Home, starting another scene on
+  it, or restarting Homebridge drops the remaining steps. Other scenes, and
+  scenes whose first step the vacuum does not accept locally, are run by the
+  Roborock cloud as before. A scene run locally may not show up in the
+  Roborock app's history.
+- **LAN address changes** are found with UDP discovery before the cloud is
+  asked.
 
-- your vacuums still appear in HomeKit, and start/stop/dock commands work over the LAN;
+The plugin caches the device list, the local keys, each vacuum's last known
+LAN address and the scene list on disk (owner-readable only) after every
+successful cloud refresh. If the Roborock cloud is unreachable when Homebridge
+starts, the plugin falls back to that cache and starts in **local-only mode**:
+
+- your vacuums and scene switches still appear in HomeKit, and commands and
+  scenes work over the LAN;
 - vacuums are found by UDP discovery, or dialed at their cached address when
   discovery finds nothing (another VLAN, or port 58866 in use);
-- cloud-only features are unavailable until the cloud returns — scenes, push
-  status updates, and the cloud online flag;
+- changes to the device or scene list, shared vacuums and the cloud's push
+  updates wait until the cloud returns;
 - the plugin keeps retrying in the background, so cloud features come back on
   their own without a Homebridge restart. If the login itself failed during
   the outage, the plugin logs in again by itself once the cloud answers (a

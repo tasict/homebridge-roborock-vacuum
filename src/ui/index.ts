@@ -20,7 +20,21 @@ import {
 
 const roborockAuth = require("../../roborockLib/lib/roborockAuth");
 const roborockHome = require("../../roborockLib/lib/roborockHome");
-const QRCode = require("qrcode");
+const qrcode = require("qrcode-generator");
+
+/** Scalable SVG QR code for a Matter pairing code ("MT:..."). */
+function pairingQrSvg(text: string): string {
+  const qr = qrcode(0, "M");
+  // Matter pairing codes only use the QR alphanumeric character set.
+  qr.addData(
+    text,
+    /^[0-9A-Z $%*+\-./:]*$/.test(text) ? "Alphanumeric" : "Byte"
+  );
+  qr.make();
+  return qr
+    .createSvgTag({ cellSize: 1, margin: 1, scalable: true })
+    .replace("<svg ", '<svg shape-rendering="crispEdges" ');
+}
 
 /**
  * Homebridge accepts `matter: true` (legacy shorthand) or a MatterConfig
@@ -698,10 +712,7 @@ class RoborockUiServer {
             manualPairingCode: commissioning.manualPairingCode,
             commissioned: Boolean(commissioning.commissioned),
             fabricCount: commissioning.fabricCount || 0,
-            qrSvg: await QRCode.toString(commissioning.qrCode, {
-              type: "svg",
-              margin: 1,
-            }),
+            qrSvg: pairingQrSvg(commissioning.qrCode),
           });
         }
 
@@ -712,10 +723,7 @@ class RoborockUiServer {
             manualPairingCode: commissioning.manualPairingCode,
             commissioned: Boolean(commissioning.commissioned),
             fabricCount: commissioning.fabricCount || 0,
-            qrSvg: await QRCode.toString(commissioning.qrCode, {
-              type: "svg",
-              margin: 1,
-            }),
+            qrSvg: pairingQrSvg(commissioning.qrCode),
           };
         }
       }

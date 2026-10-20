@@ -2,7 +2,6 @@
 
 const crypto = require("crypto");
 const CRC32 = require("crc-32");
-const Parser = require("binary-parser").Parser;
 const { getRsaKeys } = require("./rsaKeys");
 
 let seq = 1;
@@ -11,21 +10,6 @@ let random = 4711; // Should be initialized with a number 0 - 1999?
 // This value is stored hardcoded in librrcodec.so, encrypted by the value of "com.roborock.iotsdk.appsecret" from AndroidManifest.xml.
 const salt = "TXdfu$jyZ#TZHsg4";
 const b01Salt = "5wwh9ikChRjASpMU8cxg7o1d2E";
-
-const messageParser = new Parser()
-  .endianess("big")
-  .string("version", {
-    length: 3,
-  })
-  .uint32("seq")
-  .uint32("random")
-  .uint32("timestamp")
-  .uint16("protocol")
-  .uint16("payloadLen")
-  .buffer("payload", {
-    length: "payloadLen",
-  })
-  .uint32("crc32");
 
 class message {
   constructor(adapter) {
@@ -324,8 +308,20 @@ class message {
     }
   }
 
+  // Frame layout (big-endian): version(3) seq(4) random(4) timestamp(4)
+  // protocol(2) payloadLen(2) payload crc32(4).
   getParsedData(data) {
-    return messageParser.parse(data);
+    const payloadLen = data.readUInt16BE(17);
+    return {
+      version: data.toString("utf8", 0, 3),
+      seq: data.readUInt32BE(3),
+      random: data.readUInt32BE(7),
+      timestamp: data.readUInt32BE(11),
+      protocol: data.readUInt16BE(15),
+      payloadLen,
+      payload: data.subarray(19, 19 + payloadLen),
+      crc32: data.readUInt32BE(19 + payloadLen),
+    };
   }
 
   _encodeTimestamp(timestamp) {

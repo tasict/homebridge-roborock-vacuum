@@ -2,28 +2,21 @@
 
 const mqtt = require("mqtt");
 const crypto = require("crypto");
-const Parser = require("binary-parser").Parser;
 const zlib = require("zlib");
 
-const protocol301Parser = new Parser()
-  .endianess("little")
-  .string("endpoint", {
-    length: 15,
-    stripNull: true,
-  })
-  .uint8("unknown1")
-  .uint16("id")
-  .buffer("unknown2", {
-    length: 6,
-  });
+// Protocol 301 header (little-endian): endpoint(15, NUL-padded)
+// unknown(1) id(2) unknown(6).
+function parse301Header(payload) {
+  return {
+    endpoint: payload.toString("utf8", 0, 15).replace(/\0+$/, ""),
+    id: payload.readUInt16LE(16),
+  };
+}
 
-const photoParser = new Parser()
-  .endianess("little")
-  .string("roborock", {
-    length: 8,
-    stripNull: true,
-  })
-  .uint8("id");
+// Photo chunk header: "ROBOROCK"(8) id(1).
+function parsePhotoHeader(payload) {
+  return { id: payload.readUInt8(8) };
+}
 
 let mqttUser;
 let mqttPassword;
@@ -188,6 +181,24 @@ class roborock_mqtt_connector {
     return null;
   }
 
+  // Settle the pending request a protocol 102 reply answers. A secure or
+  // photo request (get_map_v1, get_photo) is first acknowledged with "ok"
+  // and gets its data with protocol 300/301, so that "ok" is not its answer.
+  // For every other request "ok" (sent as "ok" or ["ok"]) is the answer.
+  resolveResponse(dps) {
+    const pending = this.adapter.pendingRequests.get(dps.id);
+    const isAck =
+      dps.result === "ok" ||
+      (Array.isArray(dps.result) && dps.result[0] === "ok");
+    if (!pending || (pending.awaitsPayload && isAck)) {
+      return;
+    }
+
+    this.adapter.clearTimeout(pending.timeout);
+    this.adapter.pendingRequests.delete(dps.id);
+    pending.resolve(dps.result);
+  }
+
   async initMQTT_Message() {
     this.adapter.log.info(`MQTT initialized`);
 
@@ -254,21 +265,11 @@ class roborock_mqtt_connector {
             }
           }
 
-          // special check for secure request like get_map_v1 etc. Don't process if result is OK. Instead wait for the actual response for protocol 301
-          if (dps.result != "ok") {
-            if (this.adapter.pendingRequests.has(dps.id)) {
-              const { resolve, timeout } = this.adapter.pendingRequests.get(
-                dps.id
-              );
-              this.adapter.clearTimeout(timeout);
-              this.adapter.pendingRequests.delete(dps.id);
-              resolve(dps.result);
-            }
-          }
+          this.resolveResponse(dps);
           // protocol 300 seems to be for get_photo 0 only. get_photo 0 is for large images. 1 is for small images.
         } else if (data.protocol == 300) {
           if (data.payload.subarray(0, 8) == "ROBOROCK") {
-            const photoData = photoParser.parse(data.payload);
+            const photoData = parsePhotoHeader(data.payload);
 
             if (this.adapter.pendingRequests.has(photoData.id)) {
               this.adapter.log.debug(`First photo gzip chunk detected!`);
@@ -278,7 +279,7 @@ class roborock_mqtt_connector {
             }
           }
         } else if (data.protocol == 301) {
-          const data2 = protocol301Parser.parse(data.payload.subarray(0, 24));
+          const data2 = parse301Header(data.payload.subarray(0, 24));
 
           if (
             data.seq == 2 &&
@@ -309,7 +310,7 @@ class roborock_mqtt_connector {
             }
           } else {
             if (data.payload.subarray(0, 8) == "ROBOROCK") {
-              const photoData = photoParser.parse(data.payload);
+              const photoData = parsePhotoHeader(data.payload);
               this.adapter.log.debug(
                 `Cloud message with protocol 301 and photo id ${photoData.id} received.`
               );

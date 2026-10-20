@@ -67,11 +67,9 @@
   },
   "dependencies": {
     "@homebridge/plugin-ui-utils": "^2.1.2",
-    "axios": "^1.13.4",
-    "binary-parser": "^2.3.0",
     "crc-32": "^1.2.2",
     "mqtt": "^5.15.0",
-    "qrcode": "^1.5.4"
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@babel/core": "7.24.8",

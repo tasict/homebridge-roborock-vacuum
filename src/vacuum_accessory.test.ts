@@ -126,6 +126,11 @@ function createPlatform(
       getVacuumDeviceStatus: jest.fn(
         (_duid: string, code: string) => status[code] ?? ""
       ),
+      isLocallyConnected: jest.fn(() => info.locallyConnected === true),
+      isBatteryCharging: jest.fn(
+        (_duid: string, chargeStatus: unknown, state: unknown) =>
+          Number(chargeStatus) !== 0 || Number(state) === 8
+      ),
       getScenesForDevice: jest.fn(() => []),
       isDockWashSupported: jest.fn(() => false),
       isCleaning: jest.fn(() => false),
@@ -207,6 +212,27 @@ describe("RoborockVacuumAccessory consumables", () => {
     );
   });
 
+  it("refreshes consumables when locally computed life arrives", () => {
+    const status: Record<string, unknown> = {};
+    const platform = createPlatform(status);
+    const accessory = createAccessory();
+    const vacuum = new RoborockVacuumAccessory(
+      platform as any,
+      accessory as any
+    );
+    expect(
+      accessory.getServiceById(Service.FilterMaintenance, "filter")
+    ).toBeUndefined();
+
+    status.filter_life = 86;
+    vacuum.notifyDeviceUpdater("LocalMessage", { filter_life: 86 });
+
+    expect(
+      accessory.getServiceById(Service.FilterMaintenance, "filter")
+        .updateCharacteristic
+    ).toHaveBeenCalledWith(Characteristic.FilterLifeLevel, 86);
+  });
+
   it("names the service from the translation with an English fallback", () => {
     const { accessory } = createVacuum({
       filter_life: 50,
@@ -248,6 +274,17 @@ describe("RoborockVacuumAccessory status flags", () => {
     );
   });
 
+  it("keeps a locally connected robot reachable when the cloud reports offline", () => {
+    const { accessory } = createVacuum(
+      {},
+      { online: false, locallyConnected: true }
+    );
+
+    expect(
+      accessory.getService(Service.Fanv2).updateCharacteristic
+    ).toHaveBeenCalledWith(Characteristic.StatusActive, true);
+  });
+
   it("marks the accessory inactive only when the cloud reports offline", () => {
     const { accessory } = createVacuum({}, { online: false });
 
@@ -259,6 +296,25 @@ describe("RoborockVacuumAccessory status flags", () => {
     expect(
       unknownOnline.getService(Service.Fanv2).updateCharacteristic
     ).toHaveBeenCalledWith(Characteristic.StatusActive, true);
+  });
+
+  it("asks the API whether a charge_status means charging", () => {
+    const { platform, accessory } = createVacuum({
+      state: 8,
+      charge_status: 0,
+    });
+
+    expect(platform.roborockAPI.isBatteryCharging).toHaveBeenCalledWith(
+      "duid-1",
+      0,
+      8
+    );
+    expect(
+      accessory.getService(Service.Battery).updateCharacteristic
+    ).toHaveBeenCalledWith(
+      Characteristic.ChargingState,
+      Characteristic.ChargingState.CHARGING
+    );
   });
 
   it("refreshes the firmware revision from home data on every poll", () => {
