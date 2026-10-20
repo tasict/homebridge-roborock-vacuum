@@ -1,7 +1,7 @@
 {
   "name": "homebridge-roborock-vacuum",
   "displayName": "Homebridge Roborock Vacuum",
-  "version": "2.2.11",
+  "version": "2.3.0",
   "description": "Homebridge plugin that brings Roborock robot vacuums to Apple Home over HomeKit or Matter, with local control on your network.",
   "license": "MIT",
   "keywords": [
