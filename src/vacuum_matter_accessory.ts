@@ -8,7 +8,7 @@
 import type { API, Logger, MatterRequests } from "homebridge";
 import { MatterStatus } from "homebridge";
 import { BaseMatterAccessory } from "./base_matter_accessory";
-import { RoborockApi } from "./roborock_api";
+import { RoborockApi, RoborockMultiMapAreas } from "./roborock_api";
 import { ROBOROCK_ERROR_LABELS } from "./error_codes";
 
 function getMatterAPI(api: API): NonNullable<API["matter"]> {
@@ -120,9 +120,15 @@ interface CleanModeCapabilities {
   mopSupported: boolean;
 }
 
-interface SegmentRoom {
-  segmentId: number;
+// A room on one floor map. Whole-floor areas (see buildRooms) carry no
+// segment: selecting one cleans the whole floor.
+interface MapRoom {
+  mapFlag: number;
+  segmentId: number | null;
   name: string;
+  areaId: number;
+  mapId: number;
+  wholeFloor?: boolean;
 }
 
 // Matter RvcOperationalState OperationalStateEnum values used by handlers.
@@ -143,13 +149,22 @@ const BAT_CHARGE_STATE_IS_NOT_CHARGING = 3;
 const ROBOROCK_STATE_CHARGING = 8;
 const ROBOROCK_STATE_FULLY_CHARGED = 100;
 
-// ServiceArea map. Homebridge enables the Maps feature whenever
+// ServiceArea maps. Homebridge enables the Maps feature whenever
 // supportedMaps is present, and matter.js requires it to be present. With
 // the feature on but supportedMaps empty (areas on mapId null), Apple Home
-// showed no rooms (#60), so the rooms — get_room_mapping reports the
-// current map's — are published on a single map.
-const SERVICE_AREA_MAP_ID = 1;
-const SERVICE_AREA_MAPS = [{ mapId: SERVICE_AREA_MAP_ID, name: "Map" }];
+// showed no rooms (#60). Every saved floor map is published as its own map
+// (mapId = mapFlag + 1); Apple Home shows them as a "Cleaning Map" picker.
+// Segment ids repeat across floor maps, so an area id packs both:
+// (mapFlag + 1) * 1000 + segmentId. The first map (mapFlag 0) and a vacuum
+// with a single map keep the original ids (map id 1, area id = segment id),
+// so existing room selections and automations survive the update and adding
+// a floor later.
+const SINGLE_MAP_ID = 1;
+const AREA_ID_MAP_STRIDE = 1000;
+// A map with no named rooms (floor not divided in the Roborock app) gets one
+// area named after the floor: a full clean of it. Maps with rooms need none,
+// since selecting every room of a map already means a full clean.
+const WHOLE_FLOOR_SEGMENT = 999;
 
 // Matter RvcOperationalState ErrorStateEnum values.
 const MATTER_ERROR_NO_ERROR = 0;
@@ -198,10 +213,85 @@ function buildSupportedCleanModes(capabilities: CleanModeCapabilities) {
   return modes;
 }
 
-function toMatterArea(room: SegmentRoom) {
+function isMultiMap(areas: RoborockMultiMapAreas): boolean {
+  return areas.maps.length > 1;
+}
+
+function toMatterMapId(areas: RoborockMultiMapAreas, mapFlag: number): number {
+  return isMultiMap(areas) ? mapFlag + 1 : SINGLE_MAP_ID;
+}
+
+function toMatterAreaId(
+  areas: RoborockMultiMapAreas,
+  mapFlag: number,
+  segmentId: number
+): number {
+  return isMultiMap(areas) && mapFlag !== 0
+    ? toMatterMapId(areas, mapFlag) * AREA_ID_MAP_STRIDE + segmentId
+    : segmentId;
+}
+
+// Map names must be unique (matter.js rejects the attribute otherwise), but
+// two maps can share a name in the Roborock app.
+function toMatterMaps(areas: RoborockMultiMapAreas) {
+  const names = new Set<string>();
+  return areas.maps.map((map) => {
+    const name = names.has(map.name)
+      ? `${map.name} (${map.mapFlag + 1})`
+      : map.name;
+    names.add(name);
+    return { mapId: toMatterMapId(areas, map.mapFlag), name };
+  });
+}
+
+/**
+ * Floor maps and rooms from the API. Without multi-map support in the API
+ * the loaded map's rooms are published alone, as before.
+ */
+function readAreas(
+  roborockAPI: RoborockApi,
+  duid: string
+): RoborockMultiMapAreas {
+  if (typeof roborockAPI.getMultiMapAreas === "function") {
+    return roborockAPI.getMultiMapAreas(duid);
+  }
+  const rooms = roborockAPI.getSegmentRooms?.(duid) ?? [];
   return {
-    areaId: room.segmentId,
-    mapId: SERVICE_AREA_MAP_ID,
+    currentMapFlag: 0,
+    maps: [{ mapFlag: 0, name: "Map" }],
+    rooms: rooms.map((room) => ({ mapFlag: 0, ...room })),
+  };
+}
+
+/** Rooms with area ids, plus a whole-floor area for each map without rooms. */
+function buildRooms(areas: RoborockMultiMapAreas): MapRoom[] {
+  const rooms: MapRoom[] = areas.rooms.map((room) => ({
+    ...room,
+    areaId: toMatterAreaId(areas, room.mapFlag, room.segmentId),
+    mapId: toMatterMapId(areas, room.mapFlag),
+  }));
+  if (isMultiMap(areas)) {
+    for (const map of areas.maps) {
+      if (rooms.some((room) => room.mapFlag === map.mapFlag)) {
+        continue;
+      }
+      rooms.push({
+        mapFlag: map.mapFlag,
+        segmentId: null,
+        wholeFloor: true,
+        name: map.name,
+        areaId: toMatterAreaId(areas, map.mapFlag, WHOLE_FLOOR_SEGMENT),
+        mapId: toMatterMapId(areas, map.mapFlag),
+      });
+    }
+  }
+  return rooms;
+}
+
+function toMatterArea(room: MapRoom) {
+  return {
+    areaId: room.areaId,
+    mapId: room.mapId,
     areaInfo: {
       locationInfo: {
         locationName: room.name,
@@ -236,9 +326,15 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   private lastChargeStatus?: number;
   private lastFanPower?: number;
   private lastWaterBoxMode?: number;
-  // ServiceArea: rooms known to the controller and the current selection.
-  private rooms: SegmentRoom[] = [];
-  private selectedSegments: number[] = [];
+  // ServiceArea: floor maps, rooms on every floor known to the controller
+  // and the current selection (area ids).
+  private areas: RoborockMultiMapAreas = {
+    currentMapFlag: 0,
+    maps: [],
+    rooms: [],
+  };
+  private rooms: MapRoom[] = [];
+  private selectedAreaIds: number[] = [];
   // Whether the running/paused clean was started as a segment (room) clean —
   // resuming one needs resume_segment_clean (app_start restarts a full clean).
   private segmentCleanActive = false;
@@ -263,8 +359,7 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
       ...(roborockAPI.getCleanModeCapabilities?.(device.duid) ?? {}),
     };
     const supportedCleanModes = buildSupportedCleanModes(capabilities);
-    const initialRooms: SegmentRoom[] =
-      roborockAPI.getSegmentRooms?.(device.duid) ?? [];
+    const initialAreas = readAreas(roborockAPI, device.duid);
     const initialCleanMode = capabilities.mopSupported
       ? CLEAN_MODE_VACUUM_AND_MOP
       : CLEAN_MODE_VACUUM;
@@ -337,9 +432,9 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
         // asynchronously from get_room_mapping, so this often starts empty
         // and is pushed once the cache fills (see updateSupportedAreas).
         serviceArea: {
-          // See SERVICE_AREA_MAPS: one map carrying every room.
-          supportedMaps: SERVICE_AREA_MAPS,
-          supportedAreas: initialRooms.map(toMatterArea),
+          // One map per saved floor (see toMatterMaps).
+          supportedMaps: toMatterMaps(initialAreas),
+          supportedAreas: buildRooms(initialAreas).map(toMatterArea),
           selectedAreas: [],
           currentArea: null,
         },
@@ -379,7 +474,7 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
     this.capabilities = capabilities;
     this.supportedCleanModes = supportedCleanModes;
     this.currentCleanMode = initialCleanMode;
-    this.rooms = initialRooms;
+    this.setAreas(initialAreas);
 
     this.logInfo("Matter accessory initialized for DUID:", this.duid);
   }
@@ -423,15 +518,27 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
 
   /**
    * Start cleaning: the rooms selected through ServiceArea when they are a
-   * proper subset of the known rooms, everything otherwise (an empty or
-   * complete selection means a full clean, like the Roborock app).
+   * proper subset of their floor's rooms, the whole floor otherwise (an
+   * empty or complete selection, or a whole-floor area, means a full clean,
+   * like the Roborock app). Rooms on another floor map load that map first.
    */
   private async startCleaning(): Promise<void> {
-    const segments = this.selectedSegments;
+    const selected = this.selectedRooms();
+    if (selected.length > 0) {
+      await this.ensureMapLoaded(selected);
+    }
+    // ensureMapLoaded made the selection's floor the loaded one.
+    const floor = selected.length > 0 ? selected[0].mapFlag : null;
+    const mapRooms = this.rooms.filter(
+      (room) => room.mapFlag === floor && !room.wholeFloor
+    );
+    const segments = selected.some((room) => room.wholeFloor)
+      ? []
+      : selected.map((room) => room.segmentId as number);
     const isSubset =
       segments.length > 0 &&
-      this.rooms.length > 0 &&
-      segments.length < this.rooms.length;
+      mapRooms.length > 0 &&
+      segments.length < mapRooms.length;
 
     if (isSubset && typeof this.roborockAPI.app_segment_clean === "function") {
       this.logInfo(
@@ -545,20 +652,130 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
     request: MatterRequests.SelectAreas
   ): Promise<void> {
     const newAreas = Array.isArray(request.newAreas) ? request.newAreas : [];
-    const known = new Set(this.rooms.map((room) => room.segmentId));
-    const unknown = newAreas.filter((areaId) => !known.has(areaId));
+    const byAreaId = new Map(this.rooms.map((room) => [room.areaId, room]));
+    const unknown = newAreas.filter((areaId) => !byAreaId.has(areaId));
     if (unknown.length > 0) {
       throw new MatterStatus.InvalidAction(
         `Unknown area id(s): ${unknown.join(",")}`
       );
     }
 
-    this.selectedSegments = [...newAreas];
+    const rooms = newAreas.map((areaId) => byAreaId.get(areaId) as MapRoom);
+    // One floor per clean; another floor's map is loaded when the clean
+    // starts (see ensureMapLoaded), not on selection.
+    this.assertSingleFloor(rooms);
+    this.selectedAreaIds = [...newAreas];
     this.logInfo(
       newAreas.length > 0
-        ? `Rooms selected for next clean: ${newAreas.join(",")}`
+        ? `Rooms selected for next clean: ${rooms
+            .map((room) => room.name)
+            .join(", ")}`
         : "Room selection cleared (full clean)"
     );
+  }
+
+  /** The loaded floor map's mapFlag, from the live status when known. */
+  private loadedMapFlag(): number | null {
+    const live = this.roborockAPI.getCurrentMapFlag?.(this.duid);
+    return typeof live === "number" ? live : this.areas.currentMapFlag;
+  }
+
+  private mapName(mapFlag: number | null): string {
+    const map = this.areas.maps.find((m) => m.mapFlag === mapFlag);
+    return map ? map.name : `map ${mapFlag}`;
+  }
+
+  /** Throws a Matter error when the rooms span several floor maps. */
+  private assertSingleFloor(rooms: MapRoom[]): void {
+    const flags = [...new Set(rooms.map((room) => room.mapFlag))];
+    if (flags.length > 1) {
+      this.logWarn(
+        `Refused rooms on several floors (${flags
+          .map((flag) => this.mapName(flag))
+          .join(", ")}); pick rooms from one floor.`
+      );
+      throw new MatterStatus.InvalidAction(
+        "Rooms span more than one floor map"
+      );
+    }
+  }
+
+  /**
+   * Make sure the rooms' floor map is loaded, switching maps (like a
+   * Roborock scene that changes floors) when another floor's rooms were
+   * picked. The vacuum must already be on that floor. The vacuum's own room
+   * list must then name every picked room the same, also without a switch
+   * (the floor may have changed in the Roborock app since the last status
+   * poll), so a stale cache never cleans the wrong segment. A vacuum with a
+   * single map cleans as before, without these checks.
+   */
+  private async ensureMapLoaded(rooms: MapRoom[]): Promise<void> {
+    if (!isMultiMap(this.areas)) {
+      return;
+    }
+    this.assertSingleFloor(rooms);
+    const target = rooms[0].mapFlag;
+    const loaded = this.loadedMapFlag();
+    if (typeof this.roborockAPI.switchToMap !== "function") {
+      if (target === loaded) {
+        return;
+      }
+      throw new MatterStatus.InvalidInState(
+        `Vacuum is on ${this.mapName(loaded)}, not ${this.mapName(target)}`
+      );
+    }
+
+    if (target !== loaded) {
+      this.logInfo(
+        `Switching map '${this.mapName(loaded)}' -> '${this.mapName(
+          target
+        )}' for this clean`
+      );
+    }
+    let names: Record<string, string>;
+    try {
+      names = await this.roborockAPI.switchToMap(this.duid, target);
+    } catch (error) {
+      this.logWarn(
+        `Map switch to '${this.mapName(target)}' failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      throw new MatterStatus.InvalidInState(
+        `Could not load ${this.mapName(target)}`
+      );
+    }
+
+    const mismatch = rooms.filter(
+      (room) => !room.wholeFloor && names[String(room.segmentId)] !== room.name
+    );
+    if (mismatch.length > 0) {
+      this.logWarn(
+        `Refused clean: after loading '${this.mapName(
+          target
+        )}' the vacuum does not list ${mismatch
+          .map((room) => room.name)
+          .join(", ")}`
+      );
+      // switchToMap cached the vacuum's current rooms; publish them.
+      this.updateSupportedAreas();
+      throw new MatterStatus.InvalidInState(
+        "Rooms changed on the vacuum; try again"
+      );
+    }
+    this.areas.currentMapFlag = target;
+  }
+
+  private selectedRooms(): MapRoom[] {
+    const byAreaId = new Map(this.rooms.map((room) => [room.areaId, room]));
+    return this.selectedAreaIds
+      .map((areaId) => byAreaId.get(areaId))
+      .filter((room): room is MapRoom => room !== undefined);
+  }
+
+  private setAreas(areas: RoborockMultiMapAreas): void {
+    this.areas = areas;
+    this.rooms = buildRooms(areas);
   }
 
   /**
@@ -660,9 +877,9 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   public refreshServiceArea(): void {
     // supportedMaps goes first: the areas' mapId must resolve against it.
     this.updateState("serviceArea", {
-      supportedMaps: SERVICE_AREA_MAPS,
+      supportedMaps: toMatterMaps(this.areas),
       supportedAreas: this.rooms.map(toMatterArea),
-      selectedAreas: this.selectedSegments,
+      selectedAreas: this.selectedAreaIds,
       currentArea: this.currentAreaId,
     }).catch((err) => {
       this.logError("Failed to refresh service area:", err);
@@ -696,39 +913,36 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   }
 
   /**
-   * Sync the ServiceArea room list from the Roborock room-mapping cache.
-   * Called by the platform whenever device data flows; only pushes to the
-   * Matter server when the list actually changed.
+   * Sync the ServiceArea maps and rooms from the Roborock caches (floor
+   * maps, rooms of every floor). Called by the platform whenever device data
+   * flows; only pushes to the Matter server when the list actually changed.
    */
-  public updateSupportedAreas(rooms: SegmentRoom[]): void {
-    if (!Array.isArray(rooms)) {
+  public updateSupportedAreas(
+    areas: RoborockMultiMapAreas = readAreas(this.roborockAPI, this.duid)
+  ): void {
+    if (!areas || !Array.isArray(areas.rooms) || !Array.isArray(areas.maps)) {
       return;
     }
 
-    const changed =
-      rooms.length !== this.rooms.length ||
-      rooms.some(
-        (room, i) =>
-          room.segmentId !== this.rooms[i].segmentId ||
-          room.name !== this.rooms[i].name
-      );
-    if (!changed) {
+    const key = (a: RoborockMultiMapAreas) => JSON.stringify([a.maps, a.rooms]);
+    if (key(areas) === key(this.areas)) {
+      this.areas.currentMapFlag = areas.currentMapFlag;
       return;
     }
 
-    this.rooms = rooms.map((room) => ({ ...room }));
+    this.setAreas(areas);
     // Drop selections that no longer resolve to a known room.
-    const known = new Set(this.rooms.map((room) => room.segmentId));
-    this.selectedSegments = this.selectedSegments.filter((id) => known.has(id));
+    const known = new Set(this.rooms.map((room) => room.areaId));
+    this.selectedAreaIds = this.selectedAreaIds.filter((id) => known.has(id));
 
     this.logInfo(
-      `Room list updated (${this.rooms.length} room(s)): ` +
+      `Room list updated (${this.rooms.length} room(s) on ${this.areas.maps.length} map(s)): ` +
         this.rooms.map((room) => room.name).join(", ")
     );
     this.updateState("serviceArea", {
-      supportedMaps: SERVICE_AREA_MAPS,
+      supportedMaps: toMatterMaps(this.areas),
       supportedAreas: this.rooms.map(toMatterArea),
-      selectedAreas: this.selectedSegments,
+      selectedAreas: this.selectedAreaIds,
     }).catch((err) => this.logError("Failed to update supported areas:", err));
   }
 
@@ -929,8 +1143,11 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
       typeof (cleaningInfo as { segment_id?: unknown }).segment_id === "number"
     ) {
       const segId = (cleaningInfo as { segment_id: number }).segment_id;
-      const known = this.rooms.some((room) => room.segmentId === segId);
-      areaId = segId >= 0 && known ? segId : null;
+      const mapFlag = this.loadedMapFlag();
+      const room = this.rooms.find(
+        (r) => r.segmentId === segId && r.mapFlag === mapFlag
+      );
+      areaId = segId >= 0 && room ? room.areaId : null;
     }
 
     if (areaId !== this.currentAreaId) {

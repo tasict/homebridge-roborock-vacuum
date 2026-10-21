@@ -280,4 +280,5 @@ class sceneRunner {
 
 module.exports = {
   sceneRunner,
+  DOCKED_STATES,
 };
