@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.0
+
+- **New (Matter)**: Vacuums with several saved floor maps publish every floor with its rooms; Apple Home shows a **Cleaning Map** picker (#62). Each map's rooms are read once while the vacuum is on its dock: the plugin loads the map for a few seconds and then the original one again, and the vacuum does not move. Starting a clean of another floor's rooms loads that map first, like a Roborock scene; the vacuum must already be on that floor. Every room clean first checks the vacuum's own room list, so a room renamed or re-divided in the Roborock app since the last refresh is refused instead of cleaning another segment. A floor without named rooms is published as one area that cleans the whole floor. The first map, and vacuums with a single map, keep their area ids, so existing room selections and automations keep working. See "Multi-floor maps" in the README
+- **Fix (Matter)**: After the vacuum changes floors, the rooms of the previous floor map are no longer listed with the new one
+
 ## 2.3.0
 
 - **New (connectivity)**: Every feature now uses the local connection first and the Roborock cloud only as the fallback. The cloud is still needed to sign in and to read the device and scene lists. See "Cloud outages and local-only mode" in the README

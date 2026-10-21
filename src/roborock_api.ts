@@ -27,7 +27,8 @@ export interface RoborockFloorMap {
 
 /** Every floor map and its named rooms, for the Matter ServiceArea cluster. */
 export interface RoborockMultiMapAreas {
-  currentMapFlag: number;
+  // null while the loaded map is unknown (no fresh status).
+  currentMapFlag: number | null;
   maps: RoborockFloorMap[];
   rooms: Array<RoborockSegmentRoom & { mapFlag: number }>;
 }

@@ -155,9 +155,10 @@ const ROBOROCK_STATE_FULLY_CHARGED = 100;
 // showed no rooms (#60). Every saved floor map is published as its own map
 // (mapId = mapFlag + 1); Apple Home shows them as a "Cleaning Map" picker.
 // Segment ids repeat across floor maps, so an area id packs both:
-// (mapFlag + 1) * 1000 + segmentId. A vacuum with a single map keeps the
-// original ids (one map with id 1, area id = segment id), so existing room
-// selections and automations survive the update.
+// (mapFlag + 1) * 1000 + segmentId. The first map (mapFlag 0) and a vacuum
+// with a single map keep the original ids (map id 1, area id = segment id),
+// so existing room selections and automations survive the update and adding
+// a floor later.
 const SINGLE_MAP_ID = 1;
 const AREA_ID_MAP_STRIDE = 1000;
 // A map with no named rooms (floor not divided in the Roborock app) gets one
@@ -225,16 +226,22 @@ function toMatterAreaId(
   mapFlag: number,
   segmentId: number
 ): number {
-  return isMultiMap(areas)
+  return isMultiMap(areas) && mapFlag !== 0
     ? toMatterMapId(areas, mapFlag) * AREA_ID_MAP_STRIDE + segmentId
     : segmentId;
 }
 
+// Map names must be unique (matter.js rejects the attribute otherwise), but
+// two maps can share a name in the Roborock app.
 function toMatterMaps(areas: RoborockMultiMapAreas) {
-  return areas.maps.map((map) => ({
-    mapId: toMatterMapId(areas, map.mapFlag),
-    name: map.name,
-  }));
+  const names = new Set<string>();
+  return areas.maps.map((map) => {
+    const name = names.has(map.name)
+      ? `${map.name} (${map.mapFlag + 1})`
+      : map.name;
+    names.add(name);
+    return { mapId: toMatterMapId(areas, map.mapFlag), name };
+  });
 }
 
 /**
@@ -520,9 +527,10 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
     if (selected.length > 0) {
       await this.ensureMapLoaded(selected);
     }
-    const loaded = this.loadedMapFlag();
+    // ensureMapLoaded made the selection's floor the loaded one.
+    const floor = selected.length > 0 ? selected[0].mapFlag : null;
     const mapRooms = this.rooms.filter(
-      (room) => room.mapFlag === loaded && !room.wholeFloor
+      (room) => room.mapFlag === floor && !room.wholeFloor
     );
     const segments = selected.some((room) => room.wholeFloor)
       ? []
@@ -667,12 +675,12 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   }
 
   /** The loaded floor map's mapFlag, from the live status when known. */
-  private loadedMapFlag(): number {
+  private loadedMapFlag(): number | null {
     const live = this.roborockAPI.getCurrentMapFlag?.(this.duid);
     return typeof live === "number" ? live : this.areas.currentMapFlag;
   }
 
-  private mapName(mapFlag: number): string {
+  private mapName(mapFlag: number | null): string {
     const map = this.areas.maps.find((m) => m.mapFlag === mapFlag);
     return map ? map.name : `map ${mapFlag}`;
   }
@@ -695,28 +703,35 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
   /**
    * Make sure the rooms' floor map is loaded, switching maps (like a
    * Roborock scene that changes floors) when another floor's rooms were
-   * picked. The vacuum must already be on that floor. After the switch the
-   * vacuum's own room list must still name every picked room the same, so a
-   * stale cache never cleans the wrong segment.
+   * picked. The vacuum must already be on that floor. The vacuum's own room
+   * list must then name every picked room the same, also without a switch
+   * (the floor may have changed in the Roborock app since the last status
+   * poll), so a stale cache never cleans the wrong segment. A vacuum with a
+   * single map cleans as before, without these checks.
    */
   private async ensureMapLoaded(rooms: MapRoom[]): Promise<void> {
+    if (!isMultiMap(this.areas)) {
+      return;
+    }
     this.assertSingleFloor(rooms);
     const target = rooms[0].mapFlag;
     const loaded = this.loadedMapFlag();
-    if (target === loaded) {
-      return;
-    }
     if (typeof this.roborockAPI.switchToMap !== "function") {
+      if (target === loaded) {
+        return;
+      }
       throw new MatterStatus.InvalidInState(
         `Vacuum is on ${this.mapName(loaded)}, not ${this.mapName(target)}`
       );
     }
 
-    this.logInfo(
-      `Switching map '${this.mapName(loaded)}' -> '${this.mapName(
-        target
-      )}' for this clean`
-    );
+    if (target !== loaded) {
+      this.logInfo(
+        `Switching map '${this.mapName(loaded)}' -> '${this.mapName(
+          target
+        )}' for this clean`
+      );
+    }
     let names: Record<string, string>;
     try {
       names = await this.roborockAPI.switchToMap(this.duid, target);
@@ -742,6 +757,8 @@ export class RoborockVacuumMatterAccessory extends BaseMatterAccessory {
           .map((room) => room.name)
           .join(", ")}`
       );
+      // switchToMap cached the vacuum's current rooms; publish them.
+      this.updateSupportedAreas();
       throw new MatterStatus.InvalidInState(
         "Rooms changed on the vacuum; try again"
       );

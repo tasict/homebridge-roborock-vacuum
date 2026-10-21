@@ -541,7 +541,14 @@ describe("RoborockVacuumMatterAccessory", () => {
         getCurrentMapFlag: jest.fn(() => current),
         switchToMap: jest.fn(async (_duid: string, mapFlag: number) => {
           current = mapFlag;
-          return mapFlag === 2 ? { 16: "Bedroom", 17: "Study" } : {};
+          return (
+            (
+              {
+                0: { 16: "Kitchen", 17: "Hall" },
+                2: { 16: "Bedroom", 17: "Study" },
+              } as Record<number, Record<string, string>>
+            )[mapFlag] ?? {}
+          );
         }),
         ...overrides,
       });
@@ -568,17 +575,57 @@ describe("RoborockVacuumMatterAccessory", () => {
           a.areaInfo.locationInfo.locationName,
         ])
       ).toEqual([
-        [1016, 1, "Kitchen"],
-        [1017, 1, "Hall"],
+        // The first map keeps the single-map ids.
+        [16, 1, "Kitchen"],
+        [17, 1, "Hall"],
         [3016, 3, "Bedroom"],
         [3017, 3, "Study"],
         [4999, 4, "Attic"],
       ]);
     });
 
-    it("cleans rooms of the loaded floor without switching maps", async () => {
+    it("de-duplicates map names", () => {
+      const { accessory } = makeMulti({
+        getMultiMapAreas: jest.fn(() => ({
+          ...MULTI,
+          maps: MULTI.maps.map((map) => ({ ...map, name: "Floor" })),
+        })),
+      });
+      expect(
+        (accessory.clusters as any).serviceArea.supportedMaps.map(
+          (m: any) => m.name
+        )
+      ).toEqual(["Floor", "Floor (3)", "Floor (4)"]);
+    });
+
+    it("checks the loaded floor's rooms before cleaning them", async () => {
       const { accessory, roborockAPI } = makeMulti();
-      await select(accessory, [1017]);
+      await select(accessory, [17]);
+      await start(accessory);
+      expect(roborockAPI.switchToMap).toHaveBeenCalledWith(DUID, 0);
+      expect(roborockAPI.app_segment_clean).toHaveBeenCalledWith(DUID, [17]);
+    });
+
+    it("refuses a room renamed on the loaded floor", async () => {
+      const { accessory, roborockAPI } = makeMulti({
+        switchToMap: jest.fn().mockResolvedValue({ 17: "Office" }),
+      });
+      await select(accessory, [17]);
+      await expect(start(accessory)).rejects.toBeInstanceOf(
+        MatterStatus.InvalidInState
+      );
+      expect(roborockAPI.app_segment_clean).not.toHaveBeenCalled();
+    });
+
+    it("cleans a single-map vacuum's rooms without map checks", async () => {
+      const { accessory, roborockAPI } = makeMulti({
+        getMultiMapAreas: jest.fn(() => ({
+          currentMapFlag: 0,
+          maps: [{ mapFlag: 0, name: "Map" }],
+          rooms: MULTI.rooms.filter((room) => room.mapFlag === 0),
+        })),
+      });
+      await select(accessory, [17]);
       await start(accessory);
       expect(roborockAPI.switchToMap).not.toHaveBeenCalled();
       expect(roborockAPI.app_segment_clean).toHaveBeenCalledWith(DUID, [17]);
@@ -604,7 +651,7 @@ describe("RoborockVacuumMatterAccessory", () => {
 
     it("refuses rooms on several floors", async () => {
       const { accessory } = makeMulti();
-      await expect(select(accessory, [1016, 3016])).rejects.toBeInstanceOf(
+      await expect(select(accessory, [16, 3016])).rejects.toBeInstanceOf(
         MatterStatus.InvalidAction
       );
     });

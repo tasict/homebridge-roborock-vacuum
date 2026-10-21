@@ -119,10 +119,10 @@ Pairing is one-time per node — switching a device between HAP and Matter later
 
 When the vacuum has more than one saved map, every floor is published with its own rooms, and Apple Home lists them under **Cleaning Map**.
 
-- **Learning each floor's rooms**: the vacuum only reports the rooms of the map it has loaded. Once, while the vacuum sits idle on its dock, the plugin loads each other map for a few seconds, reads its rooms and loads the original map again, like Home Assistant does. The vacuum does not move. The result is saved on disk (`roborock.multimap.<duid>.json` in the Homebridge storage folder), and the loaded map's rooms keep updating on every refresh. A map without named rooms is checked again at most once a day.
+- **Learning each floor's rooms**: the vacuum only reports the rooms of the map it has loaded. Once, while the vacuum sits on its dock, the plugin loads each other map for a few seconds, reads its rooms and loads the original map again, like Home Assistant does. The vacuum does not move, and a clean started in that time is refused (try again a minute later). The result is saved on disk (`roborock.multimap.<duid>.json` in the Homebridge storage folder). Each map is read only once; after that a floor's rooms are updated whenever that map is loaded, on every refresh and when a clean switches to it.
 - **Floors without rooms**: a map whose rooms are not divided or named in the Roborock app is published as one area named after the floor. Selecting it cleans the whole floor.
 - **Cleaning another floor**: starting a clean of rooms on a map that is not loaded first loads that map, like a Roborock scene that switches floors, and only cleans once the vacuum lists the same rooms on it. **The vacuum must already be on that floor.** Rooms from several floors cannot be cleaned in one go, and maps are only switched while the vacuum is idle on its dock.
-- A vacuum with a single map keeps its existing map and area ids, so room selections and automations are unchanged.
+- The first map, and a vacuum with a single map, keep their existing map and area ids, so room selections and automations keep working, also after you add a floor.
 
 #### Known limitations
 
