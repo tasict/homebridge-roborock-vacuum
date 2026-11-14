@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4.1
+
+- **Fix (scenes)**: A scene run over the LAN no longer stops when the vacuum refuses the next step right after docking (#63). Some vacuums, such as the S8 MaxV Ultra, report "charging" while the dock is still washing the mop, so the plugin sent the next step too early, the vacuum refused it, and the remaining steps were dropped (`Scene "…" stopped because the robot did not accept it`). A refused step is now sent again every 30 seconds, once the vacuum reports idle, for up to 10 minutes; the log shows `was not accepted; the dock may still be busy` when this happens
+- **Fix (scenes)**: A refused step is no longer counted as started when the dock begins emptying the bin or washing the mop right after it. The plugin then waited for the dock and moved on to the following step, so the rooms of the refused step were silently skipped
+
 ## 2.4.0
 
 - **New (Matter)**: Vacuums with several saved floor maps publish every floor with its rooms; Apple Home shows a **Cleaning Map** picker (#62). Each map's rooms are read once while the vacuum is on its dock: the plugin loads the map for a few seconds and then the original one again, and the vacuum does not move. Starting a clean of another floor's rooms loads that map first, like a Roborock scene; the vacuum must already be on that floor. Every room clean first checks the vacuum's own room list, so a room renamed or re-divided in the Roborock app since the last refresh is refused instead of cleaning another segment. A floor without named rooms is published as one area that cleans the whole floor. The first map, and vacuums with a single map, keep their area ids, so existing room selections and automations keep working. See "Multi-floor maps" in the README

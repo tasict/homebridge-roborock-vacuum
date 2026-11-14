@@ -14,6 +14,13 @@ const DOCKED_STATES = [8, 100];
 // Emptying the dust bin, washing the mop (23, alias 25), going to wash it:
 // the dock is still busy and the next item waits.
 const DOCK_BUSY_STATES = [22, 23, 25, 26];
+// The dock's own work, which also follows the end of a clean.
+const DOCK_WORK_STATES = [22, 23, 25];
+// Some robots report charging while the dock still washes the mop, and refuse
+// the next item until it is done (#63). A refused item is sent again once the
+// robot reports idle, for up to RETRY_TIMEOUT.
+const RETRY_INTERVAL = 30 * 1000;
+const RETRY_TIMEOUT = 10 * 60 * 1000;
 
 class sceneRunner {
   constructor(adapter) {
@@ -124,8 +131,14 @@ class sceneRunner {
 
   async continue(run) {
     for (let index = 0; index < run.items.length; index++) {
-      if (index > 0 && !(await this.startItem(run, index)) && !run.cancelled) {
-        this.stop(run, index, "the robot did not accept it");
+      if (index > 0 && !(await this.startNextItem(run, index))) {
+        this.stop(
+          run,
+          index,
+          run.cancelled
+            ? "it was cancelled"
+            : `the robot did not accept it within ${RETRY_TIMEOUT / 60000} minutes`
+        );
         return;
       }
 
@@ -140,10 +153,60 @@ class sceneRunner {
     this.adapter.log.info(`Scene "${run.name}" finished.`);
   }
 
+  // Send an item after the first one, again and again while the robot refuses
+  // it. Resolves false when the robot did not accept it in time or the run was
+  // cancelled.
+  async startNextItem(run, index) {
+    const item = run.items[index];
+    const deadline = Date.now() + RETRY_TIMEOUT;
+    for (let attempt = 1; ; attempt++) {
+      if (await this.startItem(run, index)) {
+        return true;
+      }
+      if (run.cancelled) {
+        return false;
+      }
+
+      const label = `Scene "${run.name}" item ${index + 1} (${item.method})`;
+      if (attempt === 1) {
+        this.adapter.log.info(
+          `${label} was not accepted; the dock may still be busy. Trying again every ${RETRY_INTERVAL / 1000} s for up to ${RETRY_TIMEOUT / 60000} minutes.`
+        );
+      } else {
+        this.adapter.log.debug(
+          `${label} was not accepted (attempt ${attempt}).`
+        );
+      }
+      if (!(await this.waitUntilIdle(run, item.duid, deadline))) {
+        return false;
+      }
+    }
+  }
+
+  // Resolves true once a fresh status shows the robot neither cleaning nor
+  // busy at the dock, or false at the deadline or when the run was cancelled.
+  async waitUntilIdle(run, duid, deadline) {
+    while (Date.now() < deadline) {
+      await this.sleep(run, RETRY_INTERVAL);
+      if (run.cancelled) {
+        return false;
+      }
+      const fresh = await this.adapter.pollStatus(duid);
+      if (run.cancelled) {
+        return false;
+      }
+      if (fresh && !this.isBusy(duid)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Send one item. A reply other than "ok" (a rejection, a timeout, a lost
-  // reply) counts as started only when a fresh status shows the robot busy
-  // and it was not busy before, so a scene never falls back to the cloud for
-  // an item the robot already runs, nor adopts an unrelated clean.
+  // reply) counts as started only when a fresh status shows a clean that was
+  // not running before, so a scene never falls back to the cloud for an item
+  // the robot already runs, nor adopts an unrelated clean or the dock's work
+  // after the previous item.
   async startItem(run, index) {
     const item = run.items[index];
     const wasBusy = this.isBusy(item.duid);
@@ -168,7 +231,7 @@ class sceneRunner {
     return (
       (await this.adapter.pollStatus(item.duid)) &&
       !wasBusy &&
-      this.isBusy(item.duid)
+      this.isRunning(item.duid)
     );
   }
 
@@ -227,6 +290,16 @@ class sceneRunner {
       this.status(duid, "in_cleaning") > 0 ||
       this.adapter.isCleaning(state) ||
       DOCK_BUSY_STATES.includes(state)
+    );
+  }
+
+  // A clean is running: an unfinished one (in_cleaning) or a cleaning state
+  // other than the dock's own work.
+  isRunning(duid) {
+    const state = this.status(duid, "state");
+    return (
+      this.status(duid, "in_cleaning") > 0 ||
+      (this.adapter.isCleaning(state) && !DOCK_WORK_STATES.includes(state))
     );
   }
 

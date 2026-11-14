@@ -151,6 +151,8 @@ answer locally goes over the LAN first, and the cloud is only the fallback:
 - **Scenes** whose steps are all commands for vacuums connected over the LAN
   run locally, one step after the other: the next step starts once the
   vacuum is back on the dock and the dock has finished emptying and washing.
+  A step the vacuum refuses, for example while the dock is still washing the
+  mop, is sent again every 30 seconds for up to 10 minutes.
   Stopping or docking the vacuum from Apple Home, starting another scene on
   it, or restarting Homebridge drops the remaining steps. Other scenes, and
   scenes whose first step the vacuum does not accept locally, are run by the

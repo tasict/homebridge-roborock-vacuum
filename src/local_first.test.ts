@@ -652,6 +652,114 @@ describe("Roborock local scene execution", () => {
     api.sceneRunner.cancelAll();
   });
 
+  // #63: the robot reports charging while the dock still washes the mop, and
+  // refuses the next item until the dock is done.
+  describe("when the robot refuses the next item", () => {
+    const WASHING_AFTER_CLEAN = { state: 23, in_cleaning: 0, error_code: 0 };
+
+    function createTwoItemApi(statuses: object[]) {
+      const api = createSceneApi(
+        [
+          scene(1, [
+            sceneItem("d1", "do_scenes_app_start", FULL_CLEAN),
+            sceneItem("d1", "do_scenes_segments", MOP_PASS),
+          ]),
+        ],
+        statuses
+      );
+      api.messageQueueHandler.sendLocalRequest
+        .mockResolvedValueOnce(["ok"]) // item 1
+        .mockResolvedValueOnce(undefined); // item 2, refused once
+      return api;
+    }
+
+    it("sends it again until the robot accepts it", async () => {
+      jest.useFakeTimers();
+      const api = createTwoItemApi([CLEANING, DOCKED]);
+      const send = api.messageQueueHandler.sendLocalRequest;
+
+      await api.executeScene({ val: 1 });
+      await jest.advanceTimersByTimeAsync(30000); // cleaning, docked: refused
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(api.log.info).toHaveBeenCalledWith(
+        expect.stringContaining('Scene "Scene 1" item 2 (do_scenes_segments)')
+      );
+
+      await jest.advanceTimersByTimeAsync(30000);
+      expect(send).toHaveBeenCalledTimes(3);
+      expect(send).toHaveBeenLastCalledWith(
+        "d1",
+        "do_scenes_segments",
+        MOP_PASS
+      );
+      expect(api.log.info).not.toHaveBeenCalledWith(
+        expect.stringContaining("stopped")
+      );
+      api.sceneRunner.cancelAll();
+    });
+
+    it("does not take the dock's own work for the item and waits for it", async () => {
+      jest.useFakeTimers();
+      const api = createTwoItemApi([
+        CLEANING,
+        DOCKED, // item 1 done: item 2 is sent and refused
+        WASHING_AFTER_CLEAN, // read after the refusal
+        WASHING_AFTER_CLEAN, // still washing 30 s later: nothing is sent
+        DOCKED,
+      ]);
+      const send = api.messageQueueHandler.sendLocalRequest;
+
+      await api.executeScene({ val: 1 });
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(send).toHaveBeenCalledTimes(2);
+
+      await jest.advanceTimersByTimeAsync(30000);
+      expect(send).toHaveBeenCalledTimes(3);
+      expect(send).toHaveBeenLastCalledWith(
+        "d1",
+        "do_scenes_segments",
+        MOP_PASS
+      );
+      expect(api.log.info).not.toHaveBeenCalledWith(
+        expect.stringContaining("finished")
+      );
+      api.sceneRunner.cancelAll();
+    });
+
+    it("stops the run when the robot keeps refusing it for 10 minutes", async () => {
+      jest.useFakeTimers();
+      const api = createTwoItemApi([CLEANING, DOCKED]);
+      api.messageQueueHandler.sendLocalRequest.mockResolvedValue(undefined);
+
+      await api.executeScene({ val: 1 });
+      await jest.advanceTimersByTimeAsync(30000 + 9 * 60000);
+      expect(api.sceneRunner.runs.size).toBe(1);
+
+      await jest.advanceTimersByTimeAsync(2 * 60000);
+      expect(api.log.info).toHaveBeenCalledWith(
+        'Scene "Scene 1" stopped because the robot did not accept it within 10 minutes. Items not run: 2 (do_scenes_segments).'
+      );
+      expect(api.sceneRunner.runs.size).toBe(0);
+    });
+
+    it("sends nothing more when the run is cancelled meanwhile", async () => {
+      jest.useFakeTimers();
+      const api = createTwoItemApi([CLEANING, DOCKED]);
+      const send = api.messageQueueHandler.sendLocalRequest;
+
+      await api.executeScene({ val: 1 });
+      await jest.advanceTimersByTimeAsync(30000);
+      expect(send).toHaveBeenCalledTimes(2);
+
+      await api.app_charge("d1");
+      await jest.advanceTimersByTimeAsync(120000);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(api.log.info).toHaveBeenCalledWith(
+        'Scene "Scene 1" stopped because it was cancelled. Items not run: 2 (do_scenes_segments).'
+      );
+    });
+  });
+
   it("stops and logs the skipped items when the robot reports an error", async () => {
     jest.useFakeTimers();
     const api = createSceneApi(
