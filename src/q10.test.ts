@@ -222,9 +222,6 @@ describe("b01Q10 translation", () => {
       {},
       { dp: 201, value: { cmd: 2, clean_paramters: [3, 5] } },
     ],
-    ["set_custom_mode", [104], {}, { dp: 123, value: 4 }],
-    ["set_custom_mode", [108], {}, { dp: 123, value: 8 }],
-    ["set_water_box_custom_mode", [203], {}, { dp: 124, value: 3 }],
   ])("writes %s %j as a data point", (method, params, context, expected) => {
     expect(b01Q10.encodeCommand(method, params, context)).toEqual(expected);
   });
@@ -235,6 +232,8 @@ describe("b01Q10 translation", () => {
     ["get_consumable"],
     ["find_me"],
     ["app_start_wash"],
+    ["set_custom_mode"],
+    ["set_water_box_custom_mode"],
   ])("has no data point for %s", (method) => {
     expect(b01Q10.encodeCommand(method, [])).toBeNull();
   });
@@ -243,7 +242,12 @@ describe("b01Q10 translation", () => {
     expect(b01Q10.encodeCleanMode(105, 202)).toEqual({ dp: 137, value: 3 });
     expect(b01Q10.encodeCleanMode(102, 200)).toEqual({ dp: 137, value: 2 });
     expect(b01Q10.encodeCleanMode(103, 203)).toEqual({ dp: 137, value: 1 });
-    expect(b01Q10.encodeCleanMode(102, undefined)).toBeNull();
+    // A robot without mop support is sent suction alone for Vacuum.
+    expect(b01Q10.encodeCleanMode(102, undefined)).toEqual({
+      dp: 137,
+      value: 2,
+    });
+    expect(b01Q10.encodeCleanMode(undefined, undefined)).toBeNull();
   });
 
   it("encodes a write without a message id or timestamp", () => {
@@ -336,6 +340,30 @@ describe("b01Q10 map packets", () => {
         { id: 5, name: "Kitchen 2" },
       ],
     });
+  });
+
+  it("gives a repeated room name a suffix no other room has", () => {
+    const packet = mapPacket(8, 6, [
+      roomRecord(2, "Bedroom"),
+      roomRecord(3, "Bedroom"),
+      roomRecord(4, "Bedroom 2"),
+    ]);
+    expect(b01Q10.parseMapRooms(packet).rooms).toEqual([
+      { id: 2, name: "Bedroom" },
+      { id: 3, name: "Bedroom 3" },
+      { id: 4, name: "Bedroom 2" },
+    ]);
+  });
+
+  it("prefers the real room records over trailing bytes that read 01 00", () => {
+    // Width 47 and no header height: the last two bytes of the record (a
+    // padding byte set to 01, then 00) also look like an empty room list.
+    const record = roomRecord(9, "Den");
+    record[45] = 1;
+    const packet = mapPacket(47, 1, [record], 0);
+    expect(b01Q10.parseMapRooms(packet).rooms).toEqual([
+      { id: 9, name: "Den" },
+    ]);
   });
 
   it("finds the rooms when the header has no height", () => {
@@ -555,6 +583,30 @@ describe("Q10 status", () => {
     expect(notices).toHaveLength(1);
   });
 
+  it("does not report a cleared fault for a later error", async () => {
+    const { api, client } = await createApi();
+
+    await pushDps(api, client, { 121: 12, 101: { 90: 5 } });
+    expect(api.getVacuumDeviceStatus(Q10, "error_code")).toBe(5);
+
+    await pushDps(api, client, { 121: 3 });
+    await pushDps(api, client, { 121: 12 });
+    expect(api.getVacuumDeviceStatus(Q10, "error_code")).toBe(0);
+
+    await pushDps(api, client, { 101: { 90: 8 } });
+    expect(api.getVacuumDeviceStatus(Q10, "error_code")).toBe(8);
+  });
+
+  it("keeps a fault pushed just before the error state", async () => {
+    const { api, client } = await createApi();
+
+    await pushDps(api, client, { 121: 5 });
+    await pushDps(api, client, { 101: { 90: 8 } });
+    await pushDps(api, client, { 121: 12 });
+
+    expect(api.getVacuumDeviceStatus(Q10, "error_code")).toBe(8);
+  });
+
   it("reads the HomeData snapshot in V1 units until the robot pushes", async () => {
     const { api } = await createApi();
 
@@ -595,6 +647,33 @@ describe("Q10 status", () => {
       api.handleQ10Push(Q10, { 122: 90 });
       jest.advanceTimersByTime(10000);
       expect(recordCloudTimeout).toHaveBeenCalledTimes(1);
+
+      // A map or cleaning-path packet is an answer too.
+      await api.requestQ10Status(Q10);
+      api.handleQ10MapPacket(
+        Q10,
+        Buffer.from("0201000100000000000000000000", "hex")
+      );
+      jest.advanceTimersByTime(10000);
+      expect(recordCloudTimeout).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not ask an offline robot for its status", async () => {
+    jest.useFakeTimers({ doNotFake: ["setImmediate", "nextTick"] });
+    try {
+      const { api, client } = await createApi();
+      jest.spyOn(api, "onlineChecker").mockResolvedValue(false);
+      const recordCloudTimeout = jest.spyOn(api, "recordCloudTimeout");
+
+      await api.requestQ10Status(Q10);
+      jest.advanceTimersByTime(10000);
+
+      expect(client.publish).not.toHaveBeenCalled();
+      expect(recordCloudTimeout).not.toHaveBeenCalled();
+      expect(api.log.warn).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }

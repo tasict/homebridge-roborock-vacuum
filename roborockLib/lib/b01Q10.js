@@ -35,7 +35,6 @@ const DP = {
   CLEAN_MODE: 137,
   START_CLEAN: 201,
   START_BACK: 202,
-  START_DOCK_TASK: 203,
   PAUSE: 204,
   RESUME: 205,
   STOP: 206,
@@ -47,8 +46,6 @@ const CLEAN_TASK_ROOMS = 2;
 // dpStartBack (202): 5 returns to the dock to charge, as the Roborock app
 // does (1 and 4 also wash the mop or empty the bin on the way).
 const BACK_TO_DOCK_CHARGE = 5;
-// dpStartDockTask (203): 2 empties the dust bin.
-const DOCK_TASK_EMPTY_BIN = 2;
 
 // dpCleanMode (137).
 const CLEAN_MODE_VACUUM_AND_MOP = 1;
@@ -59,7 +56,7 @@ const CLEAN_MODE_MOP = 3;
 const V1_FAN_OFF = 105;
 const V1_WATER_OFF = 200;
 
-// dpFanLevel (123) <-> V1 fan_power. Q10: 0 off, 1 quiet, 2 balanced,
+// dpFanLevel (123) -> V1 fan_power. Q10: 0 off, 1 quiet, 2 balanced,
 // 3 turbo, 4 max, 8 max+.
 const FAN_LEVEL_TO_V1 = {
   0: V1_FAN_OFF,
@@ -69,12 +66,10 @@ const FAN_LEVEL_TO_V1 = {
   4: 104,
   8: 108,
 };
-const V1_TO_FAN_LEVEL = { 101: 1, 102: 2, 103: 3, 104: 4, 108: 8 };
 
-// dpWaterLevel (124) <-> V1 water_box_mode. Q10: 0 off, 1 low, 2 medium,
+// dpWaterLevel (124) -> V1 water_box_mode. Q10: 0 off, 1 low, 2 medium,
 // 3 high.
 const WATER_LEVEL_TO_V1 = { 0: V1_WATER_OFF, 1: 201, 2: 202, 3: 203 };
-const V1_TO_WATER_LEVEL = { 201: 1, 202: 2, 203: 3 };
 
 // dpStatus (121) -> the V1 state with the same meaning. The common states use
 // the V1 numbers already. The Q10 adds sub-states of a running clean (99
@@ -209,7 +204,6 @@ function encodeCommand(method, params, context = {}) {
         ? { dp: DP.RESUME, value: 0 }
         : { dp: DP.START_CLEAN, value: CLEAN_TASK_WHOLE_HOME };
     case "resume_segment_clean":
-    case "resume_zoned_clean":
       return { dp: DP.RESUME, value: 0 };
     case "app_pause":
       return { dp: DP.PAUSE, value: 0 };
@@ -217,8 +211,6 @@ function encodeCommand(method, params, context = {}) {
       return { dp: DP.STOP, value: 0 };
     case "app_charge":
       return { dp: DP.START_BACK, value: BACK_TO_DOCK_CHARGE };
-    case "app_start_collect_dust":
-      return { dp: DP.START_DOCK_TASK, value: DOCK_TASK_EMPTY_BIN };
     case "app_segment_clean": {
       const rooms = segmentIds(params);
       if (rooms.length === 0) {
@@ -230,14 +222,6 @@ function encodeCommand(method, params, context = {}) {
         value: { cmd: CLEAN_TASK_ROOMS, clean_paramters: rooms },
       };
     }
-    case "set_custom_mode": {
-      const level = V1_TO_FAN_LEVEL[Number(firstParam(params))];
-      return level === undefined ? null : { dp: DP.FAN_LEVEL, value: level };
-    }
-    case "set_water_box_custom_mode": {
-      const level = V1_TO_WATER_LEVEL[Number(firstParam(params))];
-      return level === undefined ? null : { dp: DP.WATER_LEVEL, value: level };
-    }
     default:
       return null;
   }
@@ -245,8 +229,9 @@ function encodeCommand(method, params, context = {}) {
 
 /**
  * The data point write for a Matter clean mode given in V1 terms: suction off
- * (105) means mop only, water off (200) means vacuum only, both on means
- * vacuum and mop. Returns null when the values name no mode.
+ * (105) means mop only, water off (200) or no water level (a robot without
+ * mop support) means vacuum only, both on means vacuum and mop. Returns null
+ * when no suction level is given either.
  *
  * Only the mode is written. A Q10 keeps its suction and water levels per mode,
  * and the levels the Matter accessory passes along are V1 defaults whenever
@@ -260,13 +245,13 @@ function encodeCleanMode(fanPower, waterBoxMode) {
   if (fan === V1_FAN_OFF) {
     return { dp: DP.CLEAN_MODE, value: CLEAN_MODE_MOP };
   }
-  if (water === V1_WATER_OFF) {
+  if (fan === undefined) {
+    return null;
+  }
+  if (water === undefined || water === V1_WATER_OFF) {
     return { dp: DP.CLEAN_MODE, value: CLEAN_MODE_VACUUM };
   }
-  if (fan !== undefined && water !== undefined) {
-    return { dp: DP.CLEAN_MODE, value: CLEAN_MODE_VACUUM_AND_MOP };
-  }
-  return null;
+  return { dp: DP.CLEAN_MODE, value: CLEAN_MODE_VACUUM_AND_MOP };
 }
 
 /** The MQTT payload for a data point write. 0 is a real value. */
@@ -503,7 +488,9 @@ function findRoomSection(layout, width, height) {
       return section;
     }
   }
-  for (let count = 0; count <= MAX_ROOMS; count++) {
+  // Most rooms first, so two grid bytes that happen to read 01 00 are not
+  // taken for an empty room list ahead of the real records.
+  for (let count = MAX_ROOMS; count >= 0; count--) {
     const gridLength = layout.length - (2 + count * ROOM_RECORD_LENGTH);
     if (gridLength > 0 && gridLength % width === 0) {
       const section = layout.subarray(gridLength);
@@ -567,8 +554,7 @@ function parseMapRooms(payload) {
     throw new Error("map packet has no room records");
   }
 
-  const rooms = [];
-  const seen = new Map();
+  const records = [];
   for (let index = 0; index < section[1]; index++) {
     const record = section.subarray(
       2 + index * ROOM_RECORD_LENGTH,
@@ -579,20 +565,34 @@ function parseMapRooms(payload) {
       record[ROOM_NAME_LENGTH_OFFSET],
       ROOM_RECORD_LENGTH - ROOM_NAME_OFFSET
     );
-    let name = roomName(
+    const name = roomName(
       record
         .subarray(ROOM_NAME_OFFSET, ROOM_NAME_OFFSET + nameLength)
         .toString("utf8"),
       id
     );
-    // Apple Home needs distinct names.
-    const count = (seen.get(name) || 0) + 1;
-    seen.set(name, count);
-    if (count > 1) {
-      name = `${name} ${count}`;
-    }
-    rooms.push({ id, name });
+    records.push({ id, name });
   }
+
+  // Apple Home needs distinct names: a repeated name gets the first numeric
+  // suffix no other room has ("Bedroom 2", or "Bedroom 3" when a room is
+  // already called "Bedroom 2").
+  const used = new Set(records.map((room) => room.name));
+  const given = new Set();
+  const rooms = records.map(({ id, name }) => {
+    if (!given.has(name)) {
+      given.add(name);
+      return { id, name };
+    }
+    let suffix = 2;
+    while (used.has(`${name} ${suffix}`)) {
+      suffix++;
+    }
+    const unique = `${name} ${suffix}`;
+    used.add(unique);
+    given.add(unique);
+    return { id, name: unique };
+  });
   return { mapId, rooms };
 }
 

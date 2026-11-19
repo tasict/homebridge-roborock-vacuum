@@ -175,9 +175,9 @@ class Roborock {
 
     // Q10 robots (see lib/b01Q10.js): the data points each one has pushed,
     // accumulated, since a push often carries only one or two of them; when
-    // each one last pushed; and the log notices already given once.
+    // each one last sent anything; and the log notices already given once.
     this.q10Dps = new Map();
-    this.q10LastPushAt = new Map();
+    this.q10LastMessageAt = new Map();
     this.q10Notices = new Set();
 
     this.localDevices = {};
@@ -3095,15 +3095,8 @@ class Roborock {
   // Ask a Q10 to push its full status and its current map (dpRequestDps): it
   // has no status read. A request that brings nothing back from the robot
   // within 10 s counts toward the stalled-cloud-session check, as a timed-out
-  // V1 cloud request does.
+  // V1 cloud request does. Nothing is sent while the robot is offline.
   async requestQ10Status(duid) {
-    if (!(await this.onlineChecker(duid))) {
-      this.log.debug(
-        `${this.describeRobot(duid)} is offline; not asking for its status.`
-      );
-      return;
-    }
-
     const requestedAt = Date.now();
     try {
       await this.messageQueueHandler.sendQ10Write(
@@ -3124,7 +3117,7 @@ class Roborock {
     );
 
     const timer = this.setTimeout(() => {
-      if ((this.q10LastPushAt.get(duid) || 0) < requestedAt) {
+      if ((this.q10LastMessageAt.get(duid) || 0) < requestedAt) {
         this.log.debug(
           `${this.describeRobot(duid)} pushed nothing within 10 s of a status request.`
         );
@@ -3144,11 +3137,22 @@ class Roborock {
       return;
     }
 
-    this.q10LastPushAt.set(duid, Date.now());
-    const merged = {
-      ...(this.q10Dps.get(duid) || {}),
-      ...b01Q10.flattenDps(dps),
-    };
+    this.q10LastMessageAt.set(duid, Date.now());
+    const previous = this.q10Dps.get(duid) || {};
+    const pushed = b01Q10.flattenDps(dps);
+    const merged = { ...previous, ...pushed };
+    // dpFault keeps its value after an error is cleared. Once the robot
+    // leaves the error state, forget it, so a later error is not reported
+    // with the old fault before the robot pushes the new one.
+    const fault = String(b01Q10.DP.FAULT);
+    const state = String(b01Q10.DP.STATUS);
+    if (
+      Number(previous[state]) === 12 &&
+      Number(merged[state]) !== 12 &&
+      pushed[fault] === undefined
+    ) {
+      delete merged[fault];
+    }
     this.q10Dps.set(duid, merged);
 
     const { status, unknownState, unmappedFault } = b01Q10.toV1Status(merged, {
@@ -3183,6 +3187,7 @@ class Roborock {
   // A Q10 map or cleaning-path packet (protocol 301). The current map carries
   // the room list, which feeds the Matter rooms and room cleaning.
   handleQ10MapPacket(duid, payload) {
+    this.q10LastMessageAt.set(duid, Date.now());
     const marker = payload.subarray(0, 2).toString("hex");
     let map;
     try {
