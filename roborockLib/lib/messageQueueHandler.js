@@ -1,5 +1,7 @@
 "use strict";
 
+const b01Q10 = require("./b01Q10");
+
 const requestTimeout = 10000; // 10s
 
 class messageQueueHandler {
@@ -10,6 +12,13 @@ class messageQueueHandler {
   }
 
   async sendRequest(duid, method, params, secure = false, photo = false) {
+    if (
+      typeof this.adapter.isQ10Device === "function" &&
+      this.adapter.isQ10Device(duid)
+    ) {
+      return this.sendQ10Request(duid, method, params);
+    }
+
     const remoteConnection = await this.adapter.isRemoteDevice(duid);
     const mqttConnectionState = this.adapter.rr_mqtt_connector.isConnected();
     const localConnectionState = this.adapter.localConnector.isConnected(duid);
@@ -69,6 +78,65 @@ class messageQueueHandler {
       );
       return this.send(duid, method, params, true, secure, photo);
     }
+  }
+
+  // A V1 request for a Q10 robot, sent as the data point write that does the
+  // same thing (see lib/b01Q10.js). A method the Q10 has no equivalent for,
+  // which includes every read, is refused without sending anything.
+  async sendQ10Request(duid, method, params) {
+    const paused =
+      method === "app_start" &&
+      Number(this.adapter.getVacuumDeviceStatus(duid, "state")) === 10;
+    const write = b01Q10.encodeCommand(method, params, { paused });
+    if (!write) {
+      const error = new Error(
+        `${method} is not available on Q10-series robots, so it was not sent to ${duid}.`
+      );
+      error.code = "ERR_Q10_UNSUPPORTED";
+      throw error;
+    }
+    return this.sendQ10Write(duid, write.dp, write.value);
+  }
+
+  // Publish one Q10 data point write over the cloud. A Q10 never replies to a
+  // write, so this resolves once the write is handed to the MQTT client; the
+  // robot's next status push shows whether it acted on it.
+  async sendQ10Write(duid, dp, value) {
+    if (!(await this.adapter.onlineChecker(duid))) {
+      this.adapter.log.debug(
+        `Device ${duid} offline. Not sending Q10 data point ${dp}.`
+      );
+      const error = new Error(`${duid} is offline, so it was not sent.`);
+      error.code = "ERR_Q10_NOT_SENT";
+      throw error;
+    }
+    if (!this.adapter.rr_mqtt_connector.isConnected()) {
+      this.adapter.log.debug(
+        `Cloud connection not available. Not sending Q10 data point ${dp}.`
+      );
+      const error = new Error(
+        "The Roborock cloud connection is not available, so it was not sent."
+      );
+      error.code = "ERR_Q10_NOT_SENT";
+      throw error;
+    }
+
+    const payload = b01Q10.encodePayload(dp, value);
+    const roborockMessage = await this.adapter.message.buildRoborockMessage(
+      duid,
+      101,
+      Math.floor(Date.now() / 1000),
+      payload
+    );
+    if (!roborockMessage) {
+      throw new Error(`Failed to build the Q10 message for ${duid}.`);
+    }
+
+    this.adapter.rr_mqtt_connector.sendMessage(duid, roborockMessage);
+    this.adapter.log.debug(
+      `Sent Q10 data point write ${payload} to ${duid} over the cloud. Q10 robots do not reply to writes.`
+    );
+    return "ok";
   }
 
   // Scene items: local connection only, never retried over the cloud, so a

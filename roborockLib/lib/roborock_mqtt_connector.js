@@ -204,6 +204,29 @@ class roborock_mqtt_connector {
     pending.resolve(dps.result);
   }
 
+  // Q10 robots push data points on protocol 102 and map packets on protocol
+  // 301, neither in the V1 layout handled in initMQTT_Message (see
+  // lib/b01Q10.js).
+  handleQ10Message(duid, data) {
+    if (data.protocol == 301) {
+      this.adapter.handleQ10MapPacket(duid, data.payload);
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(data.payload.toString("utf8"));
+    } catch (error) {
+      this.adapter.log.debug(
+        `Unreadable Q10 message from ${duid}: ${error.message}`
+      );
+      return;
+    }
+    if (parsed && parsed.dps && typeof parsed.dps === "object") {
+      this.adapter.handleQ10Push(duid, parsed.dps);
+    }
+  }
+
   async initMQTT_Message() {
     this.adapter.log.info(`MQTT initialized`);
 
@@ -223,6 +246,15 @@ class roborock_mqtt_connector {
 
         const data = this.adapter.message._decodeMsg(message, duid);
         if (!data) {
+          return;
+        }
+
+        if (
+          (data.protocol == 102 || data.protocol == 301) &&
+          typeof this.adapter.isQ10Device === "function" &&
+          this.adapter.isQ10Device(duid)
+        ) {
+          this.handleQ10Message(duid, data);
           return;
         }
         // this.adapter.log.debug(`MESSAGE RECEIVED for duid ${duid} with key: ${this.adapter.localKeys.get(duid)} data: ${JSON.stringify(data)} raw: ${JSON.stringify(mqttMessageParser.parse(message))} message: ${message}`);

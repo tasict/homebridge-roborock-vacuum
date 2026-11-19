@@ -17,6 +17,7 @@ const deviceFeatures = require("./lib/deviceFeatures").deviceFeatures;
 const messageQueueHandler =
   require("./lib/messageQueueHandler").messageQueueHandler;
 const { sceneRunner, DOCKED_STATES } = require("./lib/sceneRunner");
+const b01Q10 = require("./lib/b01Q10");
 const mqtt = require("mqtt");
 
 // Schema ids of the status fields in spontaneous status broadcasts
@@ -171,6 +172,13 @@ class Roborock {
     // { value, at }. getVacuumDeviceStatus prefers it over the HomeData
     // deviceStatus snapshot while fresh — see getLiveStatus.
     this.liveStatus = new Map();
+
+    // Q10 robots (see lib/b01Q10.js): the data points each one has pushed,
+    // accumulated, since a push often carries only one or two of them; when
+    // each one last pushed; and the log notices already given once.
+    this.q10Dps = new Map();
+    this.q10LastPushAt = new Map();
+    this.q10Notices = new Set();
 
     this.localDevices = {};
     this.remoteDevices = new Set();
@@ -958,6 +966,12 @@ class Roborock {
       const duid = device;
       const ip = this.localDevices[device];
 
+      // Q10 robots have no local protocol; they are reached over the cloud.
+      if (this.isQ10Device(duid)) {
+        this.log.debug(`Not connecting locally to Q10 robot ${duid}.`);
+        continue;
+      }
+
       await this.localConnector.createClient(duid, ip);
     }
 
@@ -1165,7 +1179,7 @@ class Roborock {
   async getNetworkInfo() {
     for (const device of this.devices) {
       const duid = device.duid;
-      if (!this.hasInitializedVacuum(duid)) {
+      if (!this.hasInitializedVacuum(duid) || this.isQ10Device(duid)) {
         continue;
       }
 
@@ -1267,8 +1281,11 @@ class Roborock {
     // telemetry (its own seconds-based gating lives in vacuum.getParameter).
     // Without that feature the interval would fire 86400 no-ops per device
     // per day, so it is not created at all.
+    // A Q10 has no get_status to tick.
     const roomMqttEnabled = !!(
-      this.config.currentRoomMqtt && this.config.currentRoomMqtt.enabled
+      this.config.currentRoomMqtt &&
+      this.config.currentRoomMqtt.enabled &&
+      !this.isQ10Device(duid)
     );
     if (roomMqttEnabled && !vacuum.getStatusIntervalHandle) {
       vacuum.getStatusIntervalHandle = this.setInterval(
@@ -1637,6 +1654,13 @@ class Roborock {
   async updateDataMinimumData(duid, vacuum, robotModel) {
     this.log.debug(`Latest data requested`);
 
+    // A Q10 answers none of the V1 reads below; it is asked to push its
+    // status (and its map) instead.
+    if (this.isQ10Device(duid)) {
+      await this.requestQ10Status(duid);
+      return;
+    }
+
     if (this.isSupportedVacuumModel(robotModel)) {
       await this.pollStatus(duid);
 
@@ -1656,7 +1680,6 @@ class Roborock {
         case "roborock.vacuum.a140":
         case "roborock.vacuum.a95":
         case "roborock.vacuum.a159":
-        case "roborock.vacuum.ss07":
           //do nothing
           break;
         case "roborock.vacuum.s6":
@@ -1685,6 +1708,10 @@ class Roborock {
   }
 
   async updateDataExtraData(duid, vacuum) {
+    if (this.isQ10Device(duid)) {
+      return;
+    }
+
     try {
       await this.pollOptional(duid, vacuum, "get_fw_features");
     } catch (error) {
@@ -2075,6 +2102,16 @@ class Roborock {
       return;
     }
 
+    // A command the Q10 has no equivalent for was not sent; say so plainly.
+    if (error.code === "ERR_Q10_UNSUPPORTED") {
+      this.log.info(error.message);
+      return;
+    }
+    if (error.code === "ERR_Q10_NOT_SENT") {
+      this.log.warn(`${attribute} for ${duid}: ${error.message}`);
+      return;
+    }
+
     const errorText = error.toString();
     const isTransient =
       errorText.includes("retry") ||
@@ -2363,6 +2400,22 @@ class Roborock {
     const vacuum = this.vacuums[duid];
     if (!vacuum) {
       this.log.warn(`setCleanModeParameters: unknown device ${duid}.`);
+      return;
+    }
+
+    // A Q10 has its own clean-mode data point next to suction and water.
+    if (this.isQ10Device(duid)) {
+      const write = b01Q10.encodeCleanMode(
+        parameters && parameters.fan_power,
+        parameters && parameters.water_box_mode
+      );
+      if (write) {
+        await this.messageQueueHandler.sendQ10Write(
+          duid,
+          write.dp,
+          write.value
+        );
+      }
       return;
     }
 
@@ -2955,9 +3008,7 @@ class Roborock {
       return;
     }
 
-    const model = this.getProductAttribute(duid, "model");
-    const ratedHours =
-      CONSUMABLE_LIFE_HOURS[model] || CONSUMABLE_LIFE_HOURS.default;
+    const ratedHours = this.getConsumableRatedHours(duid);
     const life = {};
     for (const [name, hours] of Object.entries(ratedHours)) {
       const workTime = consumables[`${name}_work_time`];
@@ -3010,6 +3061,166 @@ class Roborock {
     this.recordLiveStatus(duid, status);
   }
 
+  // Rated consumable life in hours for a robot's model.
+  getConsumableRatedHours(duid) {
+    const model = this.getProductAttribute(duid, "model");
+    return CONSUMABLE_LIFE_HOURS[model] || CONSUMABLE_LIFE_HOURS.default;
+  }
+
+  // A Q10-series robot (protocol B01, model ss*); see lib/b01Q10.js.
+  isQ10Device(duid) {
+    const device = this.getVacuumDeviceData(duid);
+    if (!device || device.pv !== "B01") {
+      return false;
+    }
+    const products = this.products || this.getParsedHomeData()?.products || [];
+    const product = products.find((product) => product.id == device.productId);
+    return b01Q10.isQ10Model(device.pv, product && product.model);
+  }
+
+  describeRobot(duid) {
+    const name = this.vacuums[duid] && this.vacuums[duid].name;
+    return name ? `${name} (${duid})` : duid;
+  }
+
+  // Log a Q10 notice at info level once per run.
+  noteQ10Once(key, message) {
+    if (this.q10Notices.has(key)) {
+      return;
+    }
+    this.q10Notices.add(key);
+    this.log.info(message);
+  }
+
+  // Ask a Q10 to push its full status and its current map (dpRequestDps): it
+  // has no status read. A request that brings nothing back from the robot
+  // within 10 s counts toward the stalled-cloud-session check, as a timed-out
+  // V1 cloud request does.
+  async requestQ10Status(duid) {
+    if (!(await this.onlineChecker(duid))) {
+      this.log.debug(
+        `${this.describeRobot(duid)} is offline; not asking for its status.`
+      );
+      return;
+    }
+
+    const requestedAt = Date.now();
+    try {
+      await this.messageQueueHandler.sendQ10Write(
+        duid,
+        b01Q10.DP.REQUEST_DPS,
+        {}
+      );
+    } catch (error) {
+      this.log.debug(
+        `Status request for ${this.describeRobot(duid)} was not sent: ${(error && error.message) || "no cloud connection"}`
+      );
+      return;
+    }
+
+    this.noteQ10Once(
+      `status:${duid}`,
+      `${this.describeRobot(duid)} is a Q10-series robot. It is controlled over the Roborock cloud and has no status read, so the plugin asks it to push its status every ${this.updateInterval} s and follows what it pushes.`
+    );
+
+    const timer = this.setTimeout(() => {
+      if ((this.q10LastPushAt.get(duid) || 0) < requestedAt) {
+        this.log.debug(
+          `${this.describeRobot(duid)} pushed nothing within 10 s of a status request.`
+        );
+        this.recordCloudTimeout();
+      }
+    }, 10000);
+    if (timer && typeof timer.unref === "function") {
+      timer.unref();
+    }
+  }
+
+  // A Q10 data point push (protocol 102). It is folded into what the robot
+  // pushed before, translated to V1 status fields, recorded as live status
+  // and passed to the accessories.
+  handleQ10Push(duid, dps) {
+    if (!dps || typeof dps !== "object") {
+      return;
+    }
+
+    this.q10LastPushAt.set(duid, Date.now());
+    const merged = {
+      ...(this.q10Dps.get(duid) || {}),
+      ...b01Q10.flattenDps(dps),
+    };
+    this.q10Dps.set(duid, merged);
+
+    const { status, unknownState, unmappedFault } = b01Q10.toV1Status(merged, {
+      ratedHours: this.getConsumableRatedHours(duid),
+    });
+    this.log.debug(
+      `Q10 push from ${duid}: ${JSON.stringify(dps)} -> ${JSON.stringify(status)}`
+    );
+
+    if (unknownState !== undefined) {
+      this.noteQ10Once(
+        `state:${duid}:${unknownState}`,
+        `${this.describeRobot(duid)} reports state ${unknownState}, which the plugin does not know yet; Apple Home keeps the previous state. Please report it in the plugin's GitHub issues.`
+      );
+    }
+    if (unmappedFault !== undefined) {
+      this.noteQ10Once(
+        `fault:${duid}:${unmappedFault}`,
+        `${this.describeRobot(duid)} reports fault ${unmappedFault} (${b01Q10.describeFault(unmappedFault)}), which has no Apple Home equivalent; check the Roborock app.`
+      );
+    }
+
+    if (Object.keys(status).length === 0) {
+      return;
+    }
+    this.recordLiveStatus(duid, status);
+    if (this.deviceNotify) {
+      this.deviceNotify("CloudMessage", status, duid);
+    }
+  }
+
+  // A Q10 map or cleaning-path packet (protocol 301). The current map carries
+  // the room list, which feeds the Matter rooms and room cleaning.
+  handleQ10MapPacket(duid, payload) {
+    const marker = payload.subarray(0, 2).toString("hex");
+    let map;
+    try {
+      map = b01Q10.parseMapRooms(payload);
+    } catch (error) {
+      this.log.debug(
+        `Q10 map packet ${marker} from ${duid} (${payload.length} bytes) could not be read: ${error.message}`
+      );
+      return;
+    }
+
+    this.log.debug(
+      `Q10 protocol 301 packet ${marker} from ${duid} (${payload.length} bytes)${map ? ` with ${map.rooms.length} room(s)` : ""}.`
+    );
+    if (!map) {
+      return;
+    }
+
+    const names = {};
+    for (const room of map.rooms) {
+      names[room.id] = room.name;
+    }
+    if (
+      JSON.stringify(this.segmentRoomNames[duid] || null) ===
+      JSON.stringify(names)
+    ) {
+      return;
+    }
+
+    this.segmentRoomNames[duid] = names;
+    this.log.info(
+      `Rooms of ${this.describeRobot(duid)}: ${map.rooms.map((room) => `${room.name} (${room.id})`).join(", ") || "none, the map is not divided into rooms"}.`
+    );
+    if (this.deviceNotify) {
+      this.deviceNotify("CloudMessage", {}, duid);
+    }
+  }
+
   // A live status field, or undefined when unknown or stale. Values older
   // than three poll intervals (polling stops while a device is offline) fall
   // back to the HomeData snapshot.
@@ -3026,6 +3237,16 @@ class Roborock {
     const liveValue = this.getLiveStatus(duid, property);
     if (liveValue !== undefined) {
       return liveValue;
+    }
+
+    // A Q10's HomeData snapshot holds its own data points, in its own units.
+    if (this.isQ10Device(duid)) {
+      const device = this.getVacuumDeviceData(duid);
+      const { status } = b01Q10.toV1Status(
+        b01Q10.flattenDps(device && device.deviceStatus),
+        { ratedHours: this.getConsumableRatedHours(duid) }
+      );
+      return status[property] !== undefined ? status[property] : "";
     }
 
     const propertyID = this.getVacuumSchemaId(duid, property);

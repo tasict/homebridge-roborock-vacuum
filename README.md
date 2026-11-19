@@ -34,7 +34,9 @@ This plugin is inspired by and adapted from the [ioBroker.roborock](https://gith
 
 The plugin works with vacuums that are on your **Roborock app** account. These models are known to work:
 
-S4, S4 Max, S5 Max, S6, S6 Pure, S6 MaxV, S7, S7 MaxV (Ultra), S7 Pro Ultra, S7 Max Ultra, S8, S8 Pro Ultra, S8 MaxV Ultra, Q5+, Q5 Pro, Q7, Q7 Max, Q8 Max, Qrevo, Qrevo Pro, Qrevo S, Qrevo Curv, Saros 10, and the models `roborock.vacuum.a95`, `roborock.vacuum.a159` and `roborock.vacuum.ss07`.
+S4, S4 Max, S5 Max, S6, S6 Pure, S6 MaxV, S7, S7 MaxV (Ultra), S7 Pro Ultra, S7 Max Ultra, S8, S8 Pro Ultra, S8 MaxV Ultra, Q5+, Q5 Pro, Q7, Q7 Max, Q8 Max, Qrevo, Qrevo Pro, Qrevo S, Qrevo Curv, Saros 10, and the models `roborock.vacuum.a95` and `roborock.vacuum.a159`.
+
+The Q10 series (`roborock.vacuum.ss07`, such as the Q10 S5+) is supported through the Roborock cloud; see [Q10 series](#q10-series).
 
 Most other vacuums in the Roborock app work as well; which extras (dock mop wash, consumables, clean modes) appear depends on what the model reports. A vacuum that is set up only in the Xiaomi Home app is not on your Roborock account, so the plugin cannot see it.
 
@@ -187,6 +189,39 @@ Some firmwares (such as the S8 MaxV Ultra on 02.39.x) speak a different local
 protocol than the one the cloud reports for them. The plugin detects this when
 it connects and logs `reports protocol 1.0 but answers L01 locally`; nothing
 needs to be configured.
+
+## Q10 series
+
+The Q10 series (`roborock.vacuum.ss07`, such as the Q10 S5+) speaks its own
+protocol, and the plugin translates for it. Q10 robots have no local protocol,
+so they are always controlled through the Roborock cloud; local-only mode does
+not apply to them.
+
+What works:
+
+- Start, pause, resume, stop and return to the dock, over HomeKit and Matter.
+  Starting a paused robot resumes its task.
+- State, battery and charging, from the updates the robot pushes. The plugin
+  asks it for a full status every polling interval.
+- Room cleaning over Matter. The rooms come from the map the robot sends, so
+  they appear once it has sent one after the plugin starts; rooms with a
+  default name in the Roborock app (`rr_living_room`) are shown the way the
+  app shows them (Living Room).
+- Matter clean modes (vacuum, mop, vacuum & mop). Suction and water levels
+  stay as set in the Roborock app.
+- Filter and brush life, from the hours of use the robot reports.
+- Faults that have an Apple Home equivalent, while the robot reports an error.
+  Other faults are named in the log.
+
+Not available on Q10 robots: find me (Matter Identify), resetting consumables,
+the dock mop-wash switch, multi-floor maps, the room currently being cleaned
+and the Current Room → MQTT telemetry. A command the Q10 has no equivalent for
+is not sent, and the log says so.
+
+A Q10 does not answer commands, so a command counts as done once it reaches
+the Roborock cloud; the robot's next status update shows whether it acted on
+it. The Q10 protocol support follows
+[python-roborock](https://github.com/Python-roborock/python-roborock).
 
 ## Dock mop-wash switch
 

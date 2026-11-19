@@ -2,6 +2,7 @@
 
 ## 2.5.0
 
+- **New (Q10 series)**: Q10 robots (`roborock.vacuum.ss07`, such as the Q10 S5+) can be controlled (#64). They speak their own protocol: a command is a numbered data point that the robot never answers, and its status, map and rooms arrive as pushes. The plugin used to send them the commands of other models, which they ignore, so every command and poll timed out (`Cloud request with id … timed out after 10 seconds`). Start, pause, resume, stop, return to dock, Matter room cleaning and clean modes, state, battery, charging, filter and brush life, and faults now work through the Roborock cloud; see "Q10 series" in the README
 - **Fix (cloud)**: Protocol 301 packets that are not map replies to the plugin, such as the 14-byte cleaning-path packets of Q10 robots, are no longer read as map replies. Each one logged `RangeError: The value of "offset" is out of range` (#64)
 
 ## 2.4.1
