@@ -5,8 +5,13 @@ const crypto = require("crypto");
 const zlib = require("zlib");
 
 // Protocol 301 header (little-endian): endpoint(15, NUL-padded)
-// unknown(1) id(2) unknown(6).
+// unknown(1) id(2) unknown(6). Returns null when the payload is too short to
+// carry one: B01 Q10 robots (roborock.vacuum.ss07) push their own binary map
+// and live-trace packets on protocol 301, and an empty trace is 14 bytes.
 function parse301Header(payload) {
+  if (payload.length < 24) {
+    return null;
+  }
   return {
     endpoint: payload.toString("utf8", 0, 15).replace(/\0+$/, ""),
     id: payload.readUInt16LE(16),
@@ -326,7 +331,11 @@ class roborock_mqtt_connector {
                 );
                 resolve(data.payload.slice(56));
               }
-            } else if (endpoint.startsWith(data2.endpoint)) {
+            } else if (
+              data2 &&
+              data2.endpoint &&
+              endpoint.startsWith(data2.endpoint)
+            ) {
               const iv = Buffer.alloc(16, 0);
               const decipher = crypto.createDecipheriv(
                 "aes-128-cbc",
@@ -358,6 +367,10 @@ class roborock_mqtt_connector {
                   resolve(decompressed);
                 }
               });
+            } else {
+              this.adapter.log.debug(
+                `Ignoring protocol 301 message for ${duid} (${data.payload.length} bytes); it is not a map response to this client.`
+              );
             }
           }
         } else if (data.protocol == 500) {

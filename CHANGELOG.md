@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.0
+
+- **Fix (cloud)**: Protocol 301 packets that are not map replies to the plugin, such as the 14-byte cleaning-path packets of Q10 robots, are no longer read as map replies. Each one logged `RangeError: The value of "offset" is out of range` (#64)
+
 ## 2.4.1
 
 - **Fix (scenes)**: A scene run over the LAN no longer stops when the vacuum refuses the next step right after docking (#63). Some vacuums, such as the S8 MaxV Ultra, report "charging" while the dock is still washing the mop, so the plugin sent the next step too early, the vacuum refused it, and the remaining steps were dropped (`Scene "…" stopped because the robot did not accept it`). A refused step is now sent again every 30 seconds, once the vacuum reports idle, for up to 10 minutes; the log shows `was not accepted; the dock may still be busy` when this happens
